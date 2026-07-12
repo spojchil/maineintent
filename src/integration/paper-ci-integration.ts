@@ -110,15 +110,15 @@ async function behaviorScenarios(bot: Bot) {
     name: 'dig-and-inventory', timeoutMs: 45_000,
     setup: async ctx => {
       await fixture(bot); server.send(`clear ${username}`); server.send(`give ${username} minecraft:iron_pickaxe 1`)
-      server.send(`execute at ${username} run setblock ~2 ~ ~ minecraft:stone`)
+      server.send(`execute at ${username} run setblock ~1 ~ ~ minecraft:stone`)
       await waitUntil(() => bot.inventory.items().some(item => item.name === 'iron_pickaxe'), 10_000, 'iron pickaxe inventory')
-      await waitUntil(() => bot.blockAt(bot.entity.position.offset(2, 0, 0).floored())?.name === 'stone', 10_000, 'dig target block')
-      ctx.record('setup', 'dig_fixture_ready', { relativeBlock: [2, 0, 0] })
+      await waitUntil(() => bot.blockAt(bot.entity.position.offset(1, 0, 0).floored())?.name === 'stone', 10_000, 'dig target block')
+      ctx.record('setup', 'dig_fixture_ready', { relativeBlock: [1, 0, 0] })
     },
     run: async ctx => {
       const pickaxe = bot.inventory.items().find(item => item.name === 'iron_pickaxe'); assert.ok(pickaxe)
       await bot.equip(pickaxe, 'hand')
-      const block = bot.blockAt(bot.entity.position.offset(2, 0, 0).floored()); assert.equal(block?.name, 'stone')
+      const block = bot.blockAt(bot.entity.position.offset(1, 0, 0).floored()); assert.equal(block?.name, 'stone')
       await bot.dig(block)
       await waitUntil(() => bot.blockAt(block.position)?.name === 'air', 10_000, 'stone removal')
       await waitUntil(() => bot.inventory.items().some(item => item.name === 'cobblestone'), 10_000, 'cobblestone inventory')
