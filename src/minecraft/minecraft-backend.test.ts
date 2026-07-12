@@ -37,6 +37,7 @@ class FakeBot extends EventEmitter implements BotLike {
   clearCount = 0
   quitReasons: string[] = []
   endReasons: string[] = []
+  chatMessages: string[] = []
   blocks = new Map<string, BlockLike>()
   world = { getBlock: (position: { x: number; y: number; z: number }) => this.blocks.get(`${position.x},${position.y},${position.z}`) ?? null }
 
@@ -49,6 +50,7 @@ class FakeBot extends EventEmitter implements BotLike {
     this.emit('end', reason ?? 'end')
   }
   clearControlStates(): void { this.clearCount++ }
+  chat(message: string): void { this.chatMessages.push(message) }
 }
 
 class FakeFactory implements MineflayerBotFactory {
@@ -142,6 +144,8 @@ test('connect/login/spawn becomes ready and produces a detached plain snapshot',
   assert.equal(ready.snapshot.inventory.slots[0]?.itemName, 'oak_log')
   assert.equal(ready.snapshot.trackedPlayers[0]?.username, 'MineIntentBot')
   assert.equal(factory.options[0]?.logErrors, false)
+  backend.sendChat('你好')
+  assert.deepEqual(bot.chatMessages, ['你好'])
 
   bot.entity.position.x = 99
   assert.equal(ready.snapshot.self.position.x, 1)

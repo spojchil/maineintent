@@ -74,6 +74,7 @@ export interface BotLike extends EventEmitter {
   quit(reason?: string): void
   end(reason?: string): void
   clearControlStates?: () => void
+  chat(message: string): void
 }
 
 export interface SafeBotOptions {
