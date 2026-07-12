@@ -110,7 +110,10 @@ async function behaviorScenarios(bot: Bot) {
     name: 'dig-and-inventory', timeoutMs: 45_000,
     setup: async ctx => {
       await fixture(bot); server.send(`clear ${username}`); server.send(`give ${username} minecraft:iron_pickaxe 1`)
-      server.send('setblock 2 100 0 minecraft:stone'); await delay(500); ctx.record('setup', 'dig_fixture_ready', { block: [2, 100, 0] })
+      server.send(`execute at ${username} run setblock ~2 ~ ~ minecraft:stone`)
+      await waitUntil(() => bot.inventory.items().some(item => item.name === 'iron_pickaxe'), 10_000, 'iron pickaxe inventory')
+      await waitUntil(() => bot.blockAt(bot.entity.position.offset(2, 0, 0).floored())?.name === 'stone', 10_000, 'dig target block')
+      ctx.record('setup', 'dig_fixture_ready', { relativeBlock: [2, 0, 0] })
     },
     run: async ctx => {
       const pickaxe = bot.inventory.items().find(item => item.name === 'iron_pickaxe'); assert.ok(pickaxe)
@@ -126,11 +129,11 @@ async function behaviorScenarios(bot: Bot) {
 }
 
 async function fixture(bot: Bot): Promise<void> {
-  server.send('fill -8 99 -8 12 99 8 minecraft:stone')
-  server.send('fill -8 100 -8 12 105 8 minecraft:air')
-  server.send(`tp ${username} 0 100 0 270 0`)
-  await waitUntil(() => bot.entity.position.distanceTo({ x: 0, y: 100, z: 0 } as never) < 1, 10_000, 'fixture teleport')
-  await delay(250)
+  bot.clearControlStates()
+  server.send(`execute at ${username} run fill ~-4 ~-1 ~-4 ~8 ~-1 ~4 minecraft:stone`)
+  server.send(`execute at ${username} run fill ~-4 ~ ~-4 ~8 ~3 ~4 minecraft:air`)
+  await waitUntil(() => bot.blockAt(bot.entity.position.offset(0, -1, 0).floored())?.name === 'stone', 10_000, 'fixture platform')
+  await delay(100)
 }
 
 async function connectBot(name: string): Promise<Bot> {
