@@ -316,6 +316,20 @@ player.activity.signal_observed
 
 `player.gesture.observed` 和 `player.activity.signal_observed` 记录可观察行为，不直接断言玩家意图。
 
+### 7.2.1 认知感知
+
+```text
+perception.entity.observed
+perception.entity.visibility_changed
+perception.entity.lost
+perception.block.observed
+perception.block_change.observed
+perception.sound.observed
+perception.scene.updated
+```
+
+感知事件只包含通过认知边界验证的实体、方块或声音观察。Mineflayer 实体表、完整区块、`findBlocks` 命中、raw ray 和 Control View 不得进入 payload。高频重复观察默认 coalesced；首次发现、重要变化和活动相关发现按 [认知感知详细设计](./cognitive-perception.md) 的策略持久化。
+
 ### 7.3 Companion Runtime
 
 ```text
