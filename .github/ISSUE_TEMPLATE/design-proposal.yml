@@ -1,6 +1,6 @@
 name: 设计提案
 description: 讨论产品原则、系统边界、接口或持久化语义的变化
-title: "[Proposal]: "
+title: "[提案]: "
 labels: ["type:design", "status:needs-decision"]
 body:
   - type: textarea

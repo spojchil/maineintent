@@ -1,6 +1,6 @@
 name: Bug 报告
 description: 报告可复现的错误、异常行为或可靠性问题
-title: "[Bug]: "
+title: "[缺陷]: "
 labels: ["type:bug"]
 body:
   - type: markdown
