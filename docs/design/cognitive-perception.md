@@ -478,11 +478,7 @@ interface PlayerActivitySignal {
 #14 Backend 将 Mineflayer 的 `soundEffectHeard` / `hardcodedSoundEffectHeard` 规范化为：
 
 ```ts
-interface ProtocolSoundEvent {
-  id: string
-  worldId: string
-  dimension: string
-  occurredAt: string
+interface ProtocolSoundPayload {
   soundName?: string
   soundId?: number
   category?: string
@@ -537,7 +533,7 @@ interface SoundObservation {
 ### 12.3 可听性与遮挡
 
 ```text
-ProtocolSoundEvent
+BackendEventEnvelope<ProtocolSoundPayload>
 → session / world / dimension 校验
 → 声音规则查表（类别、基础可听范围、是否位置性声音）
 → volume 修正的最大范围
