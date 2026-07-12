@@ -623,6 +623,8 @@ Perception Layer 会：
 
 ## 15. 记忆系统
 
+记忆记录、同伴档案版本、候选验证、检索排序和重启冲突协调的实现级契约见 [记忆模型、档案版本与冲突协调](./docs/design/memory-model-and-profile-versioning.md)。本节保留系统级概览。
+
 ### 15.1 记忆类型
 
 ```text
