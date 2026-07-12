@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 *.log
+research/repos/
 
 # Local Minecraft server runtime and worlds
 mcserver/.mc-server/

@@ -1,0 +1,60 @@
+name: Bug 报告
+description: 报告可复现的错误、异常行为或可靠性问题
+title: "[Bug]: "
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 请勿粘贴密钥、私人聊天、公开服务器地址或未经清理的完整日志。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？为什么这是错误？
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 启动……
+        2. 发送……
+        3. 观察到……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: MineIntent commit、Node.js、Mineflayer、Minecraft 和服务端版本。
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志与验证证据
+      description: 请先移除账号、令牌、服务器地址和私人内容。
+
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: 复现频率
+      options:
+        - 每次
+        - 经常
+        - 偶尔
+        - 只发生一次
+    validations:
+      required: true

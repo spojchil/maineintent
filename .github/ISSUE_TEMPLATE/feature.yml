@@ -1,0 +1,44 @@
+name: 功能需求
+description: 提出能够改善共同游玩体验或系统能力的功能
+title: "[Feature]: "
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 用户问题
+      description: 请描述真实游玩场景和当前缺失的体验，而不只描述解决方案。
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 期望结果
+      description: 玩家如何感知功能已经解决问题？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 可能方案
+      description: 可选；说明建议方式、替代方案和主要取舍。
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收场景
+      description: 给出至少一个可观察、可重复的游戏场景。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: 产品原则检查
+      options:
+        - label: 该功能不会把同伴退化为固定任务机器人
+          required: true
+        - label: 语言和行动结果能够保持一致
+          required: true

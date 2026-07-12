@@ -1,0 +1,1002 @@
+# MineIntent 系统设计
+
+> 状态：初稿  
+> 日期：2026-07-12  
+> 上游文档：[产品设计](./PRODUCT_DESIGN.md)  
+> 研究依据：[系统设计调研](./research/SYSTEM_DESIGN_RESEARCH.md)
+
+## 1. 设计目标
+
+MineIntent 要承载的是一个持续存在于 Minecraft 世界中的 AI 同伴，而不是一个收到任务后运行到结束的 Bot。
+
+系统必须同时满足：
+
+- 自然语言、非语言行为和实际游戏行动属于同一个连续情境。
+- AI 能在没有明确任务时陪伴，也能参与长期复杂活动。
+- 玩家随时可以交谈、改变计划、要求等待或打断行动。
+- 实时危险反应不依赖大模型延迟。
+- 所有动作由真实游戏状态执行和验证。
+- 人格、关系和共同经历能跨会话持续。
+- 记忆区分背景设定、事实、经历、推测和技能经验。
+- 系统可以解释一次语言或行动用了什么上下文、产生了什么结果。
+- 死亡、断线、模型超时和进程重启是可恢复事件。
+
+## 2. 非目标
+
+本设计当前不追求：
+
+- 让模型逐 tick 或逐按键控制玩家。
+- 用固定任务树定义全部游戏行为。
+- 执行模型生成的任意 JavaScript。
+- 一开始支持多个 Minecraft 后端、多个同伴或任意模组。
+- 用微服务拆分尚未验证的模块。
+- 模拟完整人类心理或宣称 AI 具有人类意识。
+- 把所有协议客户端可见信息直接交给同伴心智。
+
+## 3. 架构原则
+
+### 3.1 同伴心智与行动运行时解耦
+
+同伴心智决定如何理解情境、说什么、想参与什么；Minecraft 运行时负责怎样可靠地完成动作。两者不能混成一个 Agent 类，也不能各自独立到语言与行动互不知情。
+
+所有联系通过有因果关系的事件、意图和动作结果表达。
+
+### 3.2 事件驱动，而非模型轮询世界
+
+游戏状态持续变化，但大多数变化不值得模型思考。底层先将协议事件整理为稳定、可解释的领域事件，只有具有社交、活动或策略意义的事件才触发同伴决策。
+
+### 3.3 一个持续同伴，多种运行通道
+
+第一版只有一个逻辑上的同伴心智。可以使用不同模型完成主决策、记忆整理或复杂规划，但这些是同一同伴的内部工作，不表现为多个互相争论的角色。
+
+### 3.4 真实状态优先
+
+模型提出的意图、解释和记忆候选都不是事实。Minecraft 当前状态、已记录事件和动作验证结果具有更高事实权威。
+
+### 3.5 决策可以自然，执行必须受约束
+
+人格与社交判断主要由自然语言同伴档案、关系记忆和模型完成；动作只能通过注册的、可验证的能力接口执行。
+
+### 3.6 从可恢复的单体开始
+
+第一版采用一个 Node.js 进程中的模块化单体。模块边界清晰，但不引入网络分布式一致性。持久数据与 Minecraft 连接生命周期独立。
+
+## 4. 总体架构
+
+```text
+Minecraft Server
+      ↕ protocol
+┌───────────────────────────────────────────────────────────┐
+│ MineIntent Process                                        │
+│                                                           │
+│  Minecraft Adapter                                        │
+│  ├── protocol state / raw events                          │
+│  ├── atomic controls                                      │
+│  └── world truth queries                                  │
+│             ↓                                             │
+│  Perception & Event Layer ───────────────┐                 │
+│  ├── visibility / knowledge boundary    │                 │
+│  ├── event normalization                │                 │
+│  └── salience / aggregation             │                 │
+│             ↓                            │                 │
+│  Event Journal → State Projections ←─────┤                 │
+│             ↓                            │                 │
+│  Companion Runtime                      │                 │
+│  ├── attention & trigger routing        │                 │
+│  ├── conversation state                 │                 │
+│  ├── shared activity                    │                 │
+│  ├── intent and action coordination     │                 │
+│  └── proactive opportunity scheduler    │                 │
+│       ↓              ↓                   │                 │
+│  Context Composer   Action Runtime ──────┘                 │
+│       ↓              ├── skills / flows                   │
+│  Model Gateway       ├── resource locks                   │
+│       ↓              ├── cancellation / timeout           │
+│  Decision Contract   └── verification                     │
+│       ↓                                                   │
+│  Speech / Activity / Action / Memory coordination          │
+│                                                           │
+│  Memory System          Journal / Telemetry / Debug API     │
+└───────────────────────────────────────────────────────────┘
+```
+
+## 5. 四种时间尺度
+
+### 5.1 Tick 与亚秒级：本地控制和反射
+
+不调用大模型：
+
+- 物理移动和碰撞。
+- 攻击冷却与基础战斗控制。
+- 防止明显跌落、溺水或灼烧。
+- 低血量逃生触发。
+- 服务端位置修正。
+- 动作取消和资源释放。
+
+本层可以中断普通动作，但必须产生事件，让同伴之后知道自己为何停下或逃跑。
+
+本层包含持续运行的 Threat Supervisor。它不等到生命值很低才接管，而是根据预计受伤时间、可能伤害、当前生命余量、威胁移动趋势、当前动作对躲避的限制以及可用防护评估危险：
+
+| 等级 | 含义 | 处理 |
+|---|---|---|
+| 注意 | 存在潜在威胁，尚无迫近伤害 | 更新认知观察，必要时触发模型决策 |
+| 防护 | 短时间内可能受伤 | 本地调整距离、朝向、防护或当前动作 |
+| 紧急 | 即将遭受重大伤害或死亡 | 抢占身体动作，立即逃生或防御 |
+| 恢复 | 迫近危险已经解除 | 产生结果事件，将控制交回共同活动与模型决策 |
+
+具体阈值属于安全与战斗详细设计。无论模型是否正在推理，Threat Supervisor 都持续负责迫近危险，不能出现“模型思考时身体无人控制”的窗口。
+
+### 5.2 秒到分钟级：动作与技能
+
+执行导航、跟随、采集、制作、建造或战斗等连续行为。动作运行时持续观察进度、前置条件和失败，不需要模型逐步遥控。
+
+### 5.3 事件级：同伴决策
+
+在玩家聊天、共同活动变化、重要发现、动作结束、危险解除、计划需要调整或自然主动机会出现时调用模型。
+
+### 5.4 跨会话：记忆整理和长期计划
+
+在低优先级后台运行：
+
+- 情景记忆提取。
+- 事实核对与去重。
+- 关系记忆整理。
+- 旧记忆衰减、合并和反思。
+- 长期活动检查点保存。
+
+后台工作不能阻塞实时聊天、动作取消或危险反射。
+
+## 6. 事件模型
+
+### 6.1 事件是系统连接点
+
+所有对同伴连续性有意义的输入和输出都表示为事件。事件至少包含：
+
+```ts
+interface DomainEvent<T = unknown> {
+  id: string
+  type: string
+  occurredAt: string
+  recordedAt: string
+  source: 'minecraft' | 'player' | 'companion' | 'action' | 'system'
+  sessionId: string
+  worldId: string
+  correlationId?: string
+  causationId?: string
+  visibility: 'internal' | 'perceived' | 'shared'
+  payload: T
+}
+```
+
+- `correlationId` 连接同一次对话—决策—行动—结果。
+- `causationId` 指明这个事件由哪个事件直接造成。
+- `visibility` 区分程序知道、同伴合理感知到和双方明确共享的信息。
+
+### 6.2 主要事件族
+
+```text
+Lifecycle
+  connected / spawned / disconnected / respawned / dimension_changed
+
+Player interaction
+  chat_received / player_joined / player_left / player_gesture
+  item_given / player_started_activity / player_in_danger
+  activity_alignment_uncertain / activity_alignment_restored
+
+World
+  time_phase_changed / weather_changed / entity_appeared
+  important_place_observed / resource_observed / threat_changed
+  threat_protective_action / threat_emergency_takeover / threat_recovered
+
+Companion
+  attention_changed / decision_started / decision_finished
+  speech_requested / speech_sent / activity_changed / intent_changed
+
+Action
+  action_requested / accepted / started / progressed
+  suspended / cancelled / completed / failed
+
+Memory
+  candidate_created / memory_written / corrected / superseded / deleted
+  reflection_created
+```
+
+高频原始包和每 tick 状态不会全部写入长期事件日志。它们先在 Minecraft Adapter 中更新即时状态；只有状态边界、重要变化和可复现动作轨迹进入领域事件。
+
+### 6.3 日志与投影
+
+事件日志是行为历史和因果审计来源；当前状态由投影得到，例如：
+
+- 当前连接和角色状态。
+- 最近聊天与对话参与者。
+- 当前共同活动。
+- 当前动作和占用资源。
+- 最近威胁与重要观察。
+- 尚未处理的承诺和记忆候选。
+
+Minecraft 在线状态始终是当前世界事实的权威来源。重启后投影先从持久记录恢复，再与服务器实际状态重新核对。
+
+## 7. Companion Runtime
+
+Companion Runtime 是系统协调核心，但不直接操作 Mineflayer，也不保存全部世界数据。
+
+### 7.1 持续状态
+
+```text
+Presence
+  offline | connecting | active | recovering | stopping
+
+Attention
+  当前关注对象、事件或活动
+  是否处于高压力状态
+  最近为何转移注意力
+
+Conversation
+  当前参与者
+  最近话题和未回答问题
+  玩家消息是否明确对同伴说
+  是否正在等待合适的回复时机
+
+Shared Activity
+  我们在做什么
+  当前阶段与状态
+  双方目前是否仍与活动对齐
+  玩家和同伴各自的分工
+  已协商约束和相关地点
+  尚未解决的问题
+
+Intent
+  同伴当前短期打算
+  意图来源与适用条件
+  是否仍与共同活动一致
+
+Action
+  正在执行、暂停或等待验证的动作
+```
+
+### 7.2 共同活动模型
+
+共同活动是一等领域对象，不等同于任务队列：
+
+```ts
+interface SharedActivity {
+  id: string
+  summary: string
+  status: 'proposed' | 'active' | 'paused' | 'completed' | 'abandoned'
+  alignment: 'aligned' | 'uncertain' | 'diverged'
+  participants: Array<{
+    playerId: string
+    role?: string
+    currentContribution?: string
+  }>
+  agreedFacts: string[]
+  openQuestions: string[]
+  referencedPlaces: string[]
+  startedByEventId: string
+  lastUpdatedByEventId: string
+}
+```
+
+自然语言摘要保留活动的开放性；结构化字段支持恢复、检索和行动协调。模型可以提出更新，运行时根据真实事件与现有状态应用。
+
+### 7.3 意图不是固定任务树
+
+意图描述同伴当前准备做什么以及为什么，例如“与玩家一起回到刚才砍树的位置”，而不是预定义攻略节点。
+
+复杂活动可以分解为短期步骤，但步骤随情境变化，不要求一次规划完整路线。
+
+## 8. 主循环
+
+MineIntent 没有一个让模型永久自我提示的无限循环。持续性来自事件、动作进展和自然机会。
+
+```text
+1. 接收原始 Minecraft、玩家、动作或定时事件
+2. 规范化并写入领域事件
+3. 更新当前状态投影
+4. 运行确定性即时处理
+   ├── 安全反射
+   ├── 明确停止
+   └── 动作生命周期更新
+5. Attention Router 判断：
+   ├── 无需模型，只记录
+   ├── 合并到当前待处理情境
+   ├── 调整或打断正在运行的决策
+   └── 创建新的同伴决策运行
+6. Context Composer 生成有预算、有来源的上下文快照
+7. 模型返回 Decision Contract
+8. 校验决策是否仍适用于当前世界版本
+9. 协调语言、共同活动更新、动作和记忆候选
+10. 后续真实结果再次成为事件
+```
+
+### 8.1 决策运行串行化
+
+同一同伴同一时刻只有一个主要决策运行可以提交状态变更。新事件可以：
+
+- `interrupt`：停止旧推理并用新情境重新决策。
+- `steer`：补充到仍在运行的推理；若模型接口不支持，则废弃旧结果后重跑。
+- `collect`：短时间聚合多条相关事件。
+- `follow_up`：当前运行结束后立即处理。
+- `observe`：只更新状态，不触发推理。
+
+第一版的模型接口不假设支持真正的运行中上下文注入。因此当前执行策略中，`steer` 与 `interrupt` 都会取消或废弃旧推理结果，再使用新增事件重新组装上下文。保留 `steer` 这一语义分类，是为了表达“玩家在调整同一件事”并为未来支持增量转向的模型接口预留边界，而不是承诺当前能够无重跑地修改推理。
+
+### 8.2 快照版本与过期决策
+
+每次模型运行绑定一个 `contextRevision`。提交决策前运行时重新检查：
+
+- 目标玩家是否仍在线和可见。
+- 当前活动是否已变化。
+- 动作前置条件是否仍成立。
+- 是否出现更高优先级事件。
+
+过期决策不能直接执行。可安全保留的语言回复可以重新评估；动作必须重新验证或重新决策。
+
+## 9. Attention Router 与主动行为
+
+### 9.1 Attention Router
+
+Attention Router 不负责完整理解，只负责控制模型调用和响应时机。它使用：
+
+- 事件类型和紧急等级。
+- 当前动作是否可中断。
+- 玩家是否直接呼叫同伴。
+- 当前共同活动。
+- 最近是否已有相同事件。
+- 当前模型运行状态。
+- 同伴档案和近期互动对主动性的影响。
+
+明确停止、死亡和严重危险使用确定性优先路径；复杂社交含义交给主模型判断。
+
+### 9.2 活动对齐监测
+
+Activity Alignment Monitor 以低频、低成本方式判断当前共同活动是否可能陈旧。它观察：
+
+- 玩家是否持续远离活动区域或同伴。
+- 玩家是否较长时间进行与当前分工无关的行为。
+- 玩家是否停止了原本的贡献。
+- 原活动是否已经事实完成、受阻或失去前置条件。
+- 偏离是短暂插曲还是逐渐形成新的活动方向。
+
+监测器不直接判定玩家意图，也不自动结束活动。证据达到一定程度时，它将 `alignment` 改为 `uncertain` 并产生 `activity_alignment_uncertain` 事件。主模型可以选择继续观察、等待、跟随、暂停自己的动作、自然询问或更新活动。
+
+询问需要冷却和去重。玩家短暂追逐动物、捡拾物品或整理背包不应反复触发确认；如果玩家恢复相关行为，监测器产生 `activity_alignment_restored`。
+
+### 9.3 主动机会而非定时发言
+
+Proactive Scheduler 只产生“可能适合主动参与”的机会事件，不直接生成聊天：
+
+- 长途同行一段时间且没有高压力事件。
+- 完成一段共同工作。
+- 回到有共同意义的地点。
+- 发现与旧经历有关的事物。
+- 天黑、资源不足或计划自然转折。
+- 玩家长时间无明确活动且同伴有合理建议。
+
+主模型可以选择说话、做一个非语言动作、提出建议或保持沉默。系统记录玩家的明确反馈和长期互动效果，用于以后构造情境，但不把主动程度简化成一个固定数值。
+
+## 10. 上下文组装
+
+### 10.1 上下文层次
+
+每次模型运行按优先级组装：
+
+1. 产品底层约束。
+2. 可编辑同伴档案。
+3. 当前玩家档案和关系核心摘要。
+4. 当前共同活动、意图和动作状态。
+5. 新触发事件及近期互动。
+6. 当前情境所需的认知观察。
+7. 按需检索的相关长期记忆。
+8. 当前可用能力摘要。
+9. 仅在需要时加载的游戏知识和技能说明。
+
+### 10.2 上下文包
+
+Context Composer 输出的不只是文本，还保留来源清单：
+
+```ts
+interface ContextPackage {
+  revision: number
+  triggerEventIds: string[]
+  sections: Array<{
+    kind: string
+    content: string
+    sourceIds: string[]
+    trust: 'authoritative' | 'observed' | 'remembered' | 'inferred' | 'profile'
+    tokenEstimate: number
+    truncated: boolean
+  }>
+}
+```
+
+调试界面可以回答“这次为什么想起旧矿洞”“这句话是否来自同伴档案”以及“哪些信息因预算没有进入上下文”。
+
+### 10.3 预算策略
+
+- 产品约束和同伴档案稳定、紧凑并优先保留。
+- 当前共同活动和刚发生的玩家消息不可被旧聊天挤出。
+- 原始世界数据先压缩为认知观察。
+- 旧聊天通过情景记忆检索，不无限累积。
+- 详细技能与知识按需加载。
+- 压缩前先产生记忆候选，避免重要内容只存在于即将丢弃的上下文中。
+
+## 11. 决策接口
+
+模型不直接调用 Mineflayer，也不输出可执行代码。一次主决策返回一个受版本控制的结构化结果：
+
+```ts
+interface CompanionDecision {
+  schemaVersion: 1
+  contextRevision: number
+
+  interpretation?: {
+    addressedToCompanion?: boolean
+    interactionKind?: 'request' | 'proposal' | 'question' | 'warning' | 'social' | 'other'
+    situationUpdate?: string
+  }
+
+  speech?: Array<{
+    audience: string[]
+    text: string
+    timing: 'now' | 'after_action_accept' | 'after_action_result'
+  }>
+
+  activity?: {
+    operation: 'none' | 'propose' | 'update' | 'pause' | 'complete' | 'abandon'
+    summary?: string
+    contribution?: string
+    openQuestion?: string
+  }
+
+  intent?: {
+    summary: string
+    completionSignal?: string
+  }
+
+  actions?: Array<{
+    id: string
+    skill: string
+    args: Record<string, unknown>
+    purpose: string
+    after?: string[]
+  }>
+
+  memoryCandidates?: Array<{
+    kind: 'episode' | 'world_fact' | 'player_preference' | 'relationship' | 'commitment'
+    content: string
+    evidenceEventIds: string[]
+  }>
+
+  nextAttention?: {
+    waitFor: 'player' | 'action_progress' | 'action_terminal' | 'world_event' | 'natural_opportunity'
+  }
+}
+```
+
+这是系统通信协议，不是人格规则。模型仍以自然语言理解和表达情境；结构只约束哪些状态变化和动作可以进入系统。
+
+系统不要求或持久保存模型的私有推理过程，只保存用于产品解释的简短意图、输入来源和最终决定。
+
+### 11.1 同一决策中的动作仲裁
+
+动作数组顺序不具有隐式执行语义：
+
+- 没有依赖关系且身体资源不冲突的动作可以并行，例如后退与看向威胁。
+- 使用 `after` 声明依赖的动作按依赖顺序执行。
+- 多个动作竞争同一身体资源、又没有明确依赖时，Decision Coordinator 拒绝整个动作组并返回结构化原因，不自行猜测顺序。
+- 依赖不存在、形成环或包含不兼容动作时，同样拒绝整个动作组。
+- 动作组未完整通过校验前，不发送描述整组承诺的语言。
+
+第一版可以进一步限制每次决策只包含一个主要身体动作和少量互不冲突的表达动作，以降低模型输出与执行复杂度。
+
+## 12. 语言与行动一致性
+
+### 12.1 协调提交
+
+模型说“我去拿木头”时，动作不能在语言发送后才发现参数无效。Decision Coordinator 按顺序：
+
+1. 校验结构和上下文版本。
+2. 解析技能与参数。
+3. 检查动作前置条件和资源锁。
+4. 接受或拒绝动作请求。
+5. 只有动作被接受后，发送带承诺的语言。
+6. 启动动作并记录因果关系。
+
+如果动作未被接受，运行时不发送虚假承诺，而是触发一个结构化拒绝结果供同伴重新表达或询问。
+
+### 12.2 行动结果驱动后续语言
+
+“完成了”“没找到”“我被挡住了”等陈述只能基于动作终止事件和世界验证生成。模型可以决定怎样自然表达，但不能决定事实结果。
+
+### 12.3 非语言行为
+
+看向目标、停下等待、保持距离、递交物品和跟随也属于动作系统。它们应和聊天一样受意图及资源协调，而不是作为无记录的装饰动画。
+
+## 13. Action Runtime
+
+### 13.1 技能契约
+
+每个技能必须声明：
+
+```ts
+interface SkillDefinition<Args, Result> {
+  name: string
+  description: string
+  inputSchema: unknown
+  requiredResources: BodyResource[]
+  preconditions: string[]
+  expectedEffects: string[]
+  defaultTimeoutMs: number
+  interruptibility: 'immediate' | 'checkpoint' | 'terminal_only'
+  execute(ctx: SkillContext, args: Args, signal: AbortSignal): Promise<Result>
+  verify(ctx: SkillContext, args: Args, result: Result): Promise<Verification>
+}
+```
+
+结果统一包含状态、持续时间、实际效果、观察、副作用和失败原因。
+
+### 13.2 身体资源锁
+
+同伴只有一个身体。动作通过资源锁防止冲突：
+
+- `locomotion`：行走、寻路、逃跑。
+- `gaze`：持续注视和精确交互。
+- `hands`：挖掘、放置、攻击、使用。
+- `inventory`：装备、制作、容器操作。
+- `interaction`：与实体或 GUI 的协议交互。
+
+聊天通常可以与移动并行；精确操作或高压力战斗时，Speech Scheduler 可以延迟非紧急发言。
+
+资源锁只决定动作能否并发，不根据数组位置自动排队。同一决策中的顺序必须通过显式依赖表达。
+
+### 13.3 技能、短流程与长期活动
+
+- 技能：一个通用、可验证的能力。
+- 短流程：多个技能的有界组合，可取消、有超时和失败路径。
+- 长期活动：由 Companion Runtime 维护，跨多个决策和短流程推进。
+
+短流程可以使用受约束 AST，但第一版不需要先设计完整文本 DSL。长期活动绝不能编译为一个运行数小时、无法交谈的巨大 Flow。
+
+### 13.4 本地反射
+
+反射层拥有临时优先权，例如停止走向悬崖或低血量撤退。反射结束后返回：
+
+- 触发原因。
+- 采取的动作。
+- 当前结果。
+- 被中断的原动作是否可以恢复。
+
+Companion Runtime 再决定解释、恢复、改变计划或向玩家求助。
+
+### 13.5 技能可靠性
+
+系统按 Minecraft 版本、环境和参数类别统计技能成功率、常见失败和平均耗时。可靠性数据影响能力摘要和规划，但不能把失败静默隐藏。
+
+学习到的新流程先进入候选状态，经离线或受控环境验证后才能成为默认可用能力。
+
+## 14. 感知与认知边界
+
+### 14.1 三层世界表示
+
+```text
+Protocol State
+  Mineflayer 已收到的完整即时数据
+        ↓
+Control View
+  物理、碰撞、寻路和反射需要的数据
+        ↓
+Cognitive Observation
+  一个合理玩家在当前情境中可以感知、注意或回忆的信息
+```
+
+同伴模型默认只接收 Cognitive Observation。底层寻路可以使用已加载区块做碰撞规划，但不能因此向同伴宣称发现了遮挡后的矿物。
+
+### 14.2 观察类型
+
+- 自身：生命、饥饿、装备、背包摘要、状态效果。
+- 空间：可见方块、地形、出入口、相对方向和遮挡。
+- 实体：可见或合理听到的玩家、生物、掉落物和威胁。
+- 社交：聊天、朝向、距离、递交物品、跟随和活动变化。
+- 事件：受伤、死亡、昼夜、天气、维度和重要发现。
+- 记忆提示：已知地点、最近经过路线和与当前情境相关的旧经历。
+
+### 14.3 注意与聚合
+
+Perception Layer 会：
+
+- 将高频位置更新聚合为“玩家开始离开”“已经跟随一段距离”。
+- 将威胁变化聚合为出现、升级、解除。
+- 对重复普通事件去重。
+- 保留事件来源和可见性判断。
+- 允许技能请求更详细的局部观察，而不扩大模型的全局知识。
+
+非语言行为通常是含歧义的观察，不能直接变成确定的玩家意图。
+
+## 15. 记忆系统
+
+### 15.1 记忆类型
+
+```text
+Profile
+  用户主动编辑的同伴档案与初始背景
+
+Working State
+  当前对话、共同活动、意图、动作和未解决问题
+
+Episodic Memory
+  有时间、地点、参与者和证据的共同经历
+
+World Knowledge
+  已观察并验证的地点、设施、容器和世界事实
+
+Social Memory
+  玩家明确偏好、约定、共同称呼及关系理解
+
+Commitments
+  有状态、条件和完成期限的暂时约定
+
+Procedural Experience
+  技能成功、失败、环境条件和可复用经验
+
+Raw Journal
+  可回溯的原始领域事件与动作轨迹
+```
+
+### 15.2 记忆记录
+
+```ts
+interface MemoryRecord {
+  id: string
+  kind: string
+  content: string
+  source: 'profile' | 'observed' | 'player_stated' | 'derived'
+  evidenceIds: string[]
+  confidence: number
+  validFrom: string
+  validUntil?: string
+  status: 'active' | 'superseded' | 'disputed' | 'deleted'
+  subjects: string[]
+  placeIds: string[]
+  activityId?: string
+  profileVersion?: string
+  derivedFromProfileVersion?: string
+}
+```
+
+初始背景可影响人格和关系表达，但涉及当前世界的事实只有经过观察后才能标记为 verified world knowledge。
+
+### 15.3 写入流程
+
+```text
+真实事件或模型提出候选
+→ 来源与证据校验
+→ 分类并去重
+→ 写入情景记忆或事实记录
+→ 必要时更新当前活动/承诺
+→ 后台整理形成长期摘要或关系反思
+```
+
+- 明确玩家陈述可以保存为“玩家说过”，不自动等同于永久偏好。
+- 模型推断的关系理解标记为 `derived`，不能覆盖事实。
+- 纠正生成新记录并 supersede 旧记录，不悄悄重写历史。
+- 删除对正常检索立即生效；审计保留策略在产品隐私设计中另行确定。
+
+同伴档案每次编辑产生带生效时间的新版本。情景记忆继续描述当时真实发生的事情，不因新档案而重写；依赖旧档案形成、并声称同伴“当前是什么样”的 `derived` 记忆进入待复核状态。当前行为优先使用最新档案，历史回忆仍可说明以前的行为方式。撤销档案编辑会形成新的有效版本，而不是删除中间历史。
+
+### 15.4 检索
+
+检索综合：
+
+- 语义相关性。
+- 时间和近期访问。
+- 事件重要性。
+- 当前玩家与其他参与者。
+- 地点和维度。
+- 当前共同活动。
+- 来源可信度和事实状态。
+- 玩家明确固定或纠正的内容。
+
+检索先命中细粒度片段，再回到完整记忆及原始证据。Context Composer 决定最终注入哪些内容。
+
+### 15.5 反思与关系连续性
+
+后台可以从多条共同经历形成高层关系理解，例如“玩家通常喜欢自己完成建筑外观”。该内容必须：
+
+- 标为推断。
+- 引用支持它的经历。
+- 在出现反例或玩家纠正时更新。
+- 不把情绪化的一次事件永久固化为玩家人格。
+
+反思还要记录它使用的同伴档案版本。档案变化后，只重新评估与当前人格、风险倾向或表达方式有关的派生判断；关于玩家、世界和真实共同经历的记忆不能因人格编辑而被反向改写。
+
+## 16. 模型边界
+
+### 16.1 主同伴模型
+
+负责：
+
+- 社交情境理解。
+- 自然语言交流。
+- 共同活动与分工判断。
+- 选择短期意图和调用能力。
+- 处理动作结果与失败。
+- 提出记忆候选。
+
+### 16.2 可选辅助工作
+
+以下工作可以使用同一模型的独立低优先级调用，未来也可换成更小模型：
+
+- 记忆提取与整理。
+- 是否需要主动参与的复杂判断。
+- 长期复杂活动的方案分析。
+- 大段日志和历史压缩。
+
+第一版不建立多个有独立人格的规划、批评和对话 Agent。这样可以减少人格不一致、状态同步和额外延迟。
+
+### 16.3 确定性程序负责
+
+- 协议状态和物理控制。
+- 输入结构校验。
+- 动作资源锁、超时和取消。
+- 背包、方块、位置和效果验证。
+- 明确停止与安全终止。
+- 事件日志和恢复。
+- 信息可见性边界。
+
+## 17. 并发、打断与优先级
+
+### 17.1 运行通道
+
+```text
+Reflex lane       实时，本地，可抢占身体动作
+Action lane       持续技能与短流程，按身体资源协调
+Deliberation lane 单同伴串行模型决策
+Speech lane       聊天发送、节流、分段和时机控制
+Background lane   记忆整理、索引、统计和压缩
+```
+
+Reflex lane 的关键路径只更新本地内存状态并把事件放入有界异步队列，不等待 SQLite、模型、日志文件或调试接口。持久化单写者随后按顺序落盘；失败时告警和重试，但不能反向阻塞实时控制。极端进程崩溃可能丢失队列末端的少量调试事件，这一取舍优先保证身体反应时延。
+
+### 17.2 优先级
+
+从高到低：
+
+1. 进程安全终止和玩家明确停止。
+2. 立即生存危险与死亡。
+3. 连接、重生和维度切换等生命周期变化。
+4. 玩家对当前行动的明确纠正或紧急警告。
+5. 当前动作终止结果和共同活动关键变化。
+6. 普通直接聊天。
+7. 普通世界观察。
+8. 主动机会和后台整理。
+
+这个顺序只解决运行时抢占，不替代模型的社交判断。例如玩家一句玩笑不能仅凭关键词“停”触发硬停止；明确控制表达和专用安全入口需要区分。
+
+### 17.3 取消语义
+
+取消不是简单丢弃 Promise：
+
+- 发出 `AbortSignal`。
+- 技能停止 Mineflayer 插件和控制状态。
+- 关闭容器或清理临时监听器。
+- 释放身体资源锁。
+- 捕获已经发生的副作用。
+- 验证最终世界状态。
+- 产生 `action_cancelled` 事件。
+
+## 18. 持久化与恢复
+
+### 18.1 第一版存储
+
+建议：
+
+- 同伴档案：可编辑 Markdown。
+- 运行数据：本地 SQLite。
+- 大型原始调试附件：按会话存放的文件。
+- 配置：版本化配置文件和环境变量中的密钥。
+
+SQLite 保存事件日志、投影检查点、记忆、活动、模型运行、动作和技能统计。采用单写者事务，避免第一版引入外部数据库运维。
+
+### 18.2 恢复流程
+
+```text
+进程启动
+→ 加载同伴档案和数据库
+→ 恢复最后投影与未完成活动
+→ 将未终止动作标记为 interrupted_by_restart
+→ 连接 Minecraft
+→ 获取实际位置、维度、背包、生命和附近状态
+→ 对比并修正过期投影，同时产生事实失效事件
+→ 生成恢复情境事件
+→ 同伴决定是否继续、解释或放弃旧活动
+```
+
+断线时动作立即失去执行权，但共同活动不会自动完成或删除。重连后必须重新验证前置条件。
+
+恢复时不能用当前状态静默改写历史记忆。协调器区分：
+
+- 当前状态投影错误：直接按服务器状态修正。
+- 带观察时间的历史事实：继续保留，例如“昨天箱子里有二十个铁锭”。
+- 声称当前仍成立的世界事实：标记为 stale 或由新事实 supersede。
+- 来源或解释发生实质冲突的派生判断：标记为 disputed，等待后续核对。
+
+协调器产生 `world_fact_stale`、`world_fact_superseded` 或 `world_fact_disputed` 事件。只有差异影响当前共同活动或玩家询问时，才需要由同伴自然解释。
+
+### 18.3 世界身份
+
+记忆必须绑定稳定的 `worldId`，避免把一个服务器的基地和容器事实带到另一个世界。关系记忆可以跨世界存在，但具体世界事实不可以无条件迁移。
+
+## 19. 可观察性
+
+### 19.1 结构化轨迹
+
+每次有意义的闭环记录：
+
+```text
+触发事件
+→ 上下文来源和版本
+→ 模型与调用参数
+→ 结构化决策
+→ 被接受或拒绝的部分
+→ 语言发送
+→ 动作生命周期
+→ 世界验证结果
+→ 记忆变更
+```
+
+### 19.2 调试状态
+
+只读调试接口至少展示：
+
+- 连接、位置、生命和背包摘要。
+- 当前关注、共同活动和短期意图。
+- 当前动作、占用资源、进度和超时。
+- 待处理事件和模型运行状态。
+- 最近语言、动作结果和失败。
+- 本轮上下文各部分的来源和大小。
+- 被检索与写入的记忆。
+
+玩家正常游玩不需要看到内部推理或复杂面板。
+
+### 19.3 指标
+
+- 聊天响应延迟与主动发言频率。
+- 决策调用次数、token 和成本。
+- 动作成功率、取消率、超时与平均持续时间。
+- 卡死和断线恢复时间。
+- 记忆召回命中、纠正和冲突数量。
+- 语言承诺后动作未启动或未完成的比例。
+- 人工干预次数。
+
+## 20. 外部接口与模块边界
+
+### 20.1 第一版进程内接口
+
+```text
+MinecraftBackend
+  connect / disconnect / snapshot / subscribe / atomic controls
+
+EventBus
+  publish / subscribe / persist domain events
+
+CompanionRuntime
+  start / stop / handle events / inspect state
+
+ContextComposer
+  compose decision context with provenance and budget
+
+ModelProvider
+  run structured companion decision
+
+ActionRuntime
+  submit / cancel / inspect actions
+
+MemoryStore
+  capture / search / correct / consolidate
+
+TelemetrySink
+  record model, action, event and metric data
+```
+
+接口为测试和未来替换实现服务，不在没有第二个实现时建立复杂插件市场。
+
+### 20.2 对外入口
+
+第一版需要：
+
+- CLI：启动、停止、选择档案和连接世界。
+- 游戏聊天：主要产品交互。
+- 只读本地调试 API：状态和事件查看。
+- 本地管理入口：强制暂停、继续和安全终止。
+
+未来语音、Web UI、MCP 或其他消息渠道通过输入/输出适配器接入，不改变 Companion Runtime 的核心事件模型。
+
+## 21. 第一版系统切片
+
+第一版不是先实现所有架构模块的空壳，而是完成一个纵向闭环：
+
+### 21.1 场景
+
+1. 同伴读取自然语言档案并加入世界。
+2. 识别主要玩家并自然打招呼。
+3. 玩家说“一起收集些木头吧”。
+4. 同伴理解为共同活动，回复并参与。
+5. 玩家途中聊天、说“等一下”或改变计划，动作能及时调整。
+6. 天黑、受伤或找不到木头时，同伴能行动并自然说明。
+7. 玩家说“够了，我们回刚才那里”，同伴能使用当前情境和地点记忆。
+8. 活动结束后保存真实共同经历。
+9. 重启后同伴能正确回答上次发生了什么。
+
+### 21.2 最小能力
+
+- 连接、重连和基础状态快照。
+- 游戏聊天收发与主要玩家识别。
+- 跟随、等待、导航、寻找可见方块和采集。
+- 停止、取消、超时和真实背包验证。
+- 危险事件和最小本地自保。
+- 当前共同活动、意图和动作状态。
+- 同伴档案、事件日志、情景记忆和检索。
+- 一个主模型适配器。
+- 结构化决策与完整因果轨迹。
+
+### 21.3 暂缓
+
+- 完整生存技能树。
+- 任意建筑生成。
+- 战斗策略完善。
+- 自动学习可执行代码。
+- 多 AI 同伴和复杂多人社会关系。
+- 语音、视觉模型和完整调试 UI。
+- 完整 Flow 文本 DSL。
+
+## 22. 建议的代码结构
+
+```text
+src/
+├── minecraft/       # Mineflayer adapter, raw state, atomic controls
+├── perception/      # visibility, observations, event normalization
+├── events/          # domain events, bus, journal, projections
+├── companion/       # runtime, attention, conversation, activity, intent
+├── context/         # context composition, provenance, budgets
+├── models/          # provider adapters and decision protocol
+├── actions/         # action runtime, locks, cancellation, verification
+├── skills/          # registered game capabilities
+├── memory/          # capture, retrieval, consolidation, correction
+├── speech/          # chat channel, timing, chunking, rate limiting
+├── persistence/     # SQLite and profile files
+├── telemetry/       # traces, metrics and debug state
+├── app/             # composition root and lifecycle
+└── cli/             # user-facing process control
+```
+
+目录是边界提示，不要求每个目录立即成为独立包。
+
+## 23. 关键设计决定
+
+当前确定：
+
+1. 系统以持续同伴和共同活动为中心，不以任务队列为中心。
+2. 采用事件驱动运行时与多时间尺度控制。
+3. 同伴心智和 Minecraft 动作解耦，通过可追踪事件闭环统一。
+4. 主模型一次决策可以同时产生语言、活动更新、意图和动作请求。
+5. 动作只通过注册技能或有界流程执行，不运行任意模型代码。
+6. 语言承诺必须和动作接受、世界验证协调。
+7. 记忆保留来源与证据，事实和推断分开。
+8. 第一版使用单同伴、单主决策通道和模块化单体。
+9. Minecraft 实时反射与模型决策分层。
+10. 从第一个产品切片开始记录完整因果轨迹并支持恢复。
+
+## 24. 后续详细设计
+
+系统设计通过后，按以下顺序进入详细设计：
+
+1. 领域事件、事件总线与持久化 schema。
+2. Companion Runtime 状态机、活动漂移和打断规则。
+3. Decision Contract 的 JSON Schema 与模型提示词。
+4. MinecraftBackend 和认知观察边界。
+5. Action Runtime、身体资源锁与首批技能契约。
+6. 记忆 schema、档案版本一致性、恢复冲突联动、写入验证和检索排序。
+7. 第一版纵向场景的测试与验收设计。
+
+每项详细设计都应能追溯到产品原则，并避免为尚未验证的未来能力提前建立复杂扩展系统。

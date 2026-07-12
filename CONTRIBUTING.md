@@ -1,0 +1,129 @@
+# MineIntent 贡献与开发规范
+
+## 1. 基本原则
+
+- 以当前产品设计、系统设计和已接受 ADR 为实现依据。
+- 优先完成可验证的纵向场景，不先建立没有真实使用者的抽象层。
+- Minecraft 真实状态和程序验证结果高于模型声明。
+- 不提交密钥、玩家私人数据、世界存档、大型服务端文件或第三方研究仓库。
+- 发现现有设计不成立时先更新设计决定，不用代码静默改变产品方向。
+
+## 2. 工作跟踪
+
+非琐碎工作应有 GitHub Issue，包括：
+
+- 功能、Bug、测试与可靠性工作。
+- 产品或系统设计问题。
+- 有明确结论要求的技术调研。
+- 会改变公共接口、持久化或运行语义的重构。
+
+拼写修复、同一 PR 范围内的微小整理不强制建立独立 Issue。
+
+较大的工作使用父 Issue 和 sub-issues 拆分。Milestone 表示可验收的产品增量，不用作无期限的想法收集箱。
+
+## 3. 提案与架构决策
+
+会改变产品原则、系统边界、数据所有权或关键运行语义的修改，应先创建 `type:design` Issue：
+
+1. 描述问题和现实场景。
+2. 列出备选方案与取舍。
+3. 形成接受、拒绝或暂缓结论。
+4. 接受后更新现有设计文档，或在 `docs/adr/` 新建 ADR。
+5. 再创建或关联实现 Issue。
+
+Issue 保存讨论过程；设计文档和 ADR 保存当前有效结论。
+
+## 4. 分支策略
+
+项目使用 GitHub Flow，不建立长期 `develop`、`release` 或 feature 分支。
+
+从最新 `main` 创建短期分支：
+
+```text
+feat/<issue>-<name>
+fix/<issue>-<name>
+docs/<issue>-<name>
+refactor/<issue>-<name>
+research/<issue>-<name>
+```
+
+示例：
+
+```text
+feat/18-event-journal
+docs/12-decision-contract
+fix/31-release-movement-lock
+```
+
+一个分支和 PR 应尽量只解决一个清晰问题。合并后删除分支。
+
+## 5. Commit
+
+使用简化的 Conventional Commits：
+
+```text
+feat: add companion event journal
+fix: release movement lock on cancellation
+docs: define activity alignment semantics
+test: cover profile-memory reconciliation
+refactor: isolate Mineflayer adapter
+chore: configure CI
+```
+
+提交应保持可理解，不提交明显损坏的中间状态。PR 内可以有多个开发提交，合并时使用 Squash Merge。
+
+## 6. Pull Request
+
+非琐碎改动通过 PR 进入 `main`。PR 应：
+
+- 关联对应 Issue，并在适用时使用 `Closes #<number>`。
+- 说明目标、方案、验证和影响。
+- 保持范围足够小，便于理解和回滚。
+- 同步更新受到影响的设计、接口和测试文档。
+- 通过所有自动检查。
+
+只有注释、拼写等不改变行为的极小改动可以由维护者直接提交到 `main`。
+
+## 7. 验证要求
+
+提交 PR 前至少运行：
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+```
+
+涉及 Minecraft 行为时，还应提供相应验证证据：
+
+- 单元测试或状态机测试。
+- 可重复的服务器集成测试。
+- 使用的 Minecraft/Paper/Mineflayer 版本。
+- 动作结果和真实世界验证。
+- 失败、取消和清理路径。
+
+不能用模型输出“成功”代替游戏状态验证。
+
+## 8. AI 辅助开发
+
+允许使用 AI 编写和审查代码，但提交者仍对结果负责：
+
+- AI 生成的实现必须经过阅读和实际验证。
+- 不把生产密钥、私人聊天、玩家数据或未公开世界文件发送给外部模型。
+- 不因 AI 建议而跳过 Issue、设计决定、测试或代码审查。
+- 大范围生成改动应拆分成可审查的 PR。
+- PR 描述应说明实际验证结果，不写无法证实的结论。
+
+## 9. 文档维护
+
+- `PRODUCT_DESIGN.md` 定义产品体验与范围。
+- `SYSTEM_DESIGN.md` 定义当前系统边界和运行语义。
+- `docs/adr/` 保存单项、长期有效的架构决定。
+- `research/` 保存已整理的调研结论；`research/repos/` 只用于本地第三方源码，不提交。
+- 临时笔记在结论吸收后删除，不作为长期规范来源。
+
+设计文档描述当前有效状态，不保留大段已经失效的方案；历史变化由 Git 和 ADR 状态记录。
+
+## 10. 安全报告
+
+不要在公开 Issue 中提交密钥、访问令牌、服务器地址、私人日志或可利用漏洞的敏感细节。安全问题使用仓库的私密漏洞报告渠道。

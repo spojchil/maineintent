@@ -1,0 +1,43 @@
+name: 设计提案
+description: 讨论产品原则、系统边界、接口或持久化语义的变化
+title: "[Proposal]: "
+labels: ["type:design", "status:needs-decision"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题
+      description: 当前设计在哪个真实场景下不足？
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束
+      description: 涉及哪些产品原则、运行时事实或兼容要求？
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: 备选方案
+      description: 至少列出两个方案，或说明为什么只有一个可行方案。
+    validations:
+      required: true
+
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: 取舍
+    validations:
+      required: true
+
+  - type: textarea
+    id: decision
+    attributes:
+      label: 建议结论
+      description: 说明建议接受、拒绝还是先做原型验证。
+    validations:
+      required: true
