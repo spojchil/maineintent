@@ -140,7 +140,10 @@ async function behaviorScenarios(bot: Bot) {
       const block = bot.blockAt(bot.entity.position.offset(1, 0, 0).floored()); assert.equal(block?.name, 'stone')
       await bot.dig(block)
       await waitUntil(() => bot.blockAt(block.position)?.name === 'air', 10_000, 'stone removal')
-      await waitUntil(() => bot.inventory.items().some(item => item.name === 'cobblestone'), 10_000, 'cobblestone inventory')
+      await bot.lookAt(block.position.offset(0.5, 0, 0.5), true)
+      bot.setControlState('forward', true)
+      try { await waitUntil(() => bot.inventory.items().some(item => item.name === 'cobblestone'), 10_000, 'cobblestone inventory') }
+      finally { bot.setControlState('forward', false) }
       ctx.record('assertion', 'dig_inventory_verified', { inventory: bot.inventory.items().map(item => ({ name: item.name, count: item.count })) })
     }, cleanup: async () => { bot.stopDigging(); server.send(`clear ${username}`) },
   }))
