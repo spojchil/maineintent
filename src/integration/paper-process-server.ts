@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, rmSync, copyFileSync, writeFileSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, rmSync, copyFileSync, cpSync, writeFileSync } from 'node:fs'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import path from 'node:path'
 
@@ -8,6 +8,7 @@ export interface PaperProcessServerOptions {
   directory: string
   port: number
   eulaAccepted: boolean
+  templateDirectory?: string
   startupTimeoutMs?: number
   stopTimeoutMs?: number
 }
@@ -26,7 +27,13 @@ export class PaperProcessServer {
     const resolved = path.resolve(this.options.directory)
     if (resolved.length < 10 || path.parse(resolved).root === resolved) throw new Error(`Unsafe Paper runtime directory: ${resolved}`)
     rmSync(resolved, { recursive: true, force: true })
-    mkdirSync(resolved, { recursive: true })
+    if (this.options.templateDirectory) {
+      const template = path.resolve(this.options.templateDirectory)
+      if (!existsSync(path.join(template, 'world', 'level.dat'))) throw new Error(`Paper world template is incomplete: ${template}`)
+      cpSync(template, resolved, { recursive: true, force: true })
+      rmSync(path.join(resolved, 'logs'), { recursive: true, force: true })
+      rmSync(path.join(resolved, 'crash-reports'), { recursive: true, force: true })
+    } else mkdirSync(resolved, { recursive: true })
     copyFileSync(this.options.jar, path.join(resolved, 'paper.jar'))
     writeFileSync(path.join(resolved, 'eula.txt'), 'eula=true\n', 'utf8')
     writeFileSync(path.join(resolved, 'server.properties'), properties(this.options.port), 'utf8')

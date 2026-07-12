@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
+import { existsSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import mineflayer, { type Bot } from 'mineflayer'
 import type { BackendEventEnvelope, BackendLifecyclePayload } from '../minecraft/contracts.js'
@@ -13,20 +14,22 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const runId = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`
 const artifactsRoot = path.resolve(process.env.MC_ARTIFACTS_DIR ?? path.join(root, '.artifacts', 'paper'))
 const runtimeDirectory = path.join(artifactsRoot, runId, 'server')
+const templateDirectory = required('MC_SERVER_TEMPLATE')
 const port = Number(process.env.MC_PORT ?? 25566)
 const username = process.env.MC_USERNAME ?? 'MineIntentBotCI'
 const recorder = new JsonlIntegrationRecorder(artifactsRoot, runId)
 const server = new PaperProcessServer({
   java: required('MC_JAVA'), jar: required('MC_SERVER_JAR'), directory: runtimeDirectory, port,
-  eulaAccepted: process.env.MC_EULA === 'true', startupTimeoutMs: 180_000, stopTimeoutMs: 90_000,
+  eulaAccepted: process.env.MC_EULA === 'true', templateDirectory, startupTimeoutMs: 180_000, stopTimeoutMs: 90_000,
 })
 
 async function main(): Promise<void> {
   const results = []
   let backend: MinecraftBackend | undefined
   try {
+    await ensureTemplate()
     server.prepareFresh()
-    recorder.record('suite', 'setup', 'paper_runtime_prepared', { port, runtimeDirectory })
+    recorder.record('suite', 'setup', 'paper_runtime_prepared', { port, runtimeDirectory, templateDirectory })
     await server.start()
     recorder.record('suite', 'setup', 'paper_started', { port })
 
@@ -47,6 +50,22 @@ async function main(): Promise<void> {
     recorder.record('suite', 'cleanup', 'paper_stopped', {})
     recorder.writeSummary(results)
   }
+}
+
+async function ensureTemplate(): Promise<void> {
+  if (existsSync(path.join(templateDirectory, 'world', 'level.dat'))) {
+    recorder.record('template', 'setup', 'template_reused', { templateDirectory })
+    return
+  }
+  const builder = new PaperProcessServer({
+    java: required('MC_JAVA'), jar: required('MC_SERVER_JAR'), directory: templateDirectory, port,
+    eulaAccepted: process.env.MC_EULA === 'true', startupTimeoutMs: 180_000, stopTimeoutMs: 90_000,
+  })
+  recorder.record('template', 'setup', 'template_generation_started', { templateDirectory })
+  builder.prepareFresh()
+  try { await builder.start() } finally { await builder.stop() }
+  writeFileSync(path.join(templateDirectory, 'mineintent-template.json'), `${JSON.stringify({ minecraft: '1.21.1', paperBuild: 133, createdAt: new Date().toISOString() }, null, 2)}\n`, 'utf8')
+  recorder.record('template', 'cleanup', 'template_generation_completed', { templateDirectory })
 }
 
 async function lifecycleScenario() {
