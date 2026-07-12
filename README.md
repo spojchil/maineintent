@@ -61,19 +61,26 @@ pnpm install
 pnpm check
 ```
 
-在 `localhost:25565` 已运行 Minecraft 1.21.1 离线验证服务器时，可执行一次性连接测试：
+运行自动单元和契约测试：
 
 ```powershell
-pnpm smoke:connect
+pnpm test
 ```
 
-可通过环境变量覆盖连接参数：
+在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 集成验收：
+
+```powershell
+pnpm test:paper
+```
+
+该测试会杀死并传送测试 Bot，还会安全停止并重启本地 Paper。默认检测到其他玩家在线时拒绝执行。明确作为观察者上线时，可通过环境变量放行用户名：
 
 ```powershell
 $env:MC_HOST = "localhost"
 $env:MC_PORT = "25565"
 $env:MC_USERNAME = "MineIntentBot"
-pnpm smoke:connect
+$env:MC_OBSERVER_USERNAMES = "spojchil"
+pnpm test:paper
 ```
 
 ## 开发流程
