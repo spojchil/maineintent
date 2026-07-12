@@ -6,8 +6,8 @@
   "scripts": {
     "check": "tsc --noEmit",
     "dev": "tsx src/main.ts",
-    "smoke:connect": "tsx src/smoke-connect.ts",
-    "test": "echo \"No tests configured yet\""
+    "test": "tsx --test src/test.ts",
+    "test:paper": "tsx src/minecraft/paper-integration.ts"
   },
   "keywords": [],
   "author": "",
