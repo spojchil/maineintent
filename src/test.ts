@@ -1,3 +1,5 @@
 import './minecraft/minecraft-backend.test.js'
 import './speech/speech.test.js'
 import './actions/action-runtime.test.js'
+import './integration/scenario-runner.test.js'
+import './integration/paper-process-server.test.js'
