@@ -381,6 +381,8 @@ Proactive Scheduler 只产生“可能适合主动参与”的机会事件，不
 
 ## 10. 上下文组装
 
+上下文包、来源信任、预算截断和确定性组装的实现级契约见 [同伴决策协议与上下文包](./docs/design/decision-contract-and-context.md)。
+
 ### 10.1 上下文层次
 
 每次模型运行按优先级组装：
@@ -426,6 +428,8 @@ interface ContextPackage {
 - 压缩前先产生记忆候选，避免重要内容只存在于即将丢弃的上下文中。
 
 ## 11. 决策接口
+
+完整的版本化 schema、动作组原子预检、过期拒绝、输出修复和效果提交语义见 [同伴决策协议与上下文包](./docs/design/decision-contract-and-context.md)。本节保留系统级概览。
 
 模型不直接调用 Mineflayer，也不输出可执行代码。一次主决策返回一个受版本控制的结构化结果：
 
