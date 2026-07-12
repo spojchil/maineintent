@@ -190,6 +190,13 @@ export class MinecraftBackend implements MinecraftBackendApi {
     return buildSnapshot(active.bot, this.#snapshotContext(active), this.#state.status === 'dead')
   }
 
+  sendChat(message: string): void {
+    const active = this.#active
+    if (!active || this.#state.status !== 'ready') throw new BackendNotReadyError()
+    if (typeof message !== 'string' || message.length === 0 || /[\r\n\0]/.test(message)) throw new TypeError('Chat message must be non-empty single-line text')
+    active.bot.chat(message)
+  }
+
   observationSource(): ProtocolObservationSource {
     const active = this.#active
     if (!active || !['ready', 'dead'].includes(this.#state.status)) throw new BackendNotReadyError()

@@ -261,5 +261,5 @@ export interface MinecraftBackendApi {
   snapshot(): Readonly<MinecraftSnapshotV1>
   subscribe(listener: (event: BackendEventEnvelope) => void): Unsubscribe
   observationSource(): ProtocolObservationSource
+  sendChat(message: string): void
 }
-
