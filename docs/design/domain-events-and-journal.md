@@ -393,15 +393,20 @@ safety.threat.recovered
 ### 7.8 记忆
 
 ```text
+profile.version.activated
 memory.candidate.created
 memory.record.written
+memory.record.status_changed
 memory.record.superseded
 memory.record.disputed
 memory.record.deleted
 memory.reflection.created
+memory.world_fact.became_stale
+memory.world_fact.superseded
+memory.world_fact.became_disputed
 ```
 
-模型只能产生 candidate；Memory System 验证后才产生 record written。
+模型只能产生 candidate；Memory System 验证后才产生 record written。档案内容不进入事件 payload；`profile.version.activated` 只记录 profile ID、version ID、内容哈希、生效时间和变更原因。记忆状态与档案版本的完整规则由 [记忆模型、档案版本与冲突协调](./memory-model-and-profile-versioning.md) 定义。
 
 ## 8. Event Hub
 
