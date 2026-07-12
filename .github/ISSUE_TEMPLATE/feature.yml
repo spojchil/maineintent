@@ -1,6 +1,6 @@
 name: 功能需求
 description: 提出能够改善共同游玩体验或系统能力的功能
-title: "[Feature]: "
+title: "[功能]: "
 labels: ["type:feature"]
 body:
   - type: textarea
