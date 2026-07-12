@@ -17,6 +17,8 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 首个目标是验证最小同伴闭环：玩家与 AI 通过游戏聊天形成“共同收集木材”的活动，AI 能参与、接受中途调整、处理简单意外、验证真实结果，并在重启后记住共同经历。
 
+真实 Paper 1.21.1 测试的本地与 self-hosted CI 用法见 [Paper 集成测试](./docs/testing/paper-integration.md)。
+
 ## 核心原则
 
 1. AI 是可协商的队友，不是绝对服从的工具，也不与玩家争夺游戏主导权。

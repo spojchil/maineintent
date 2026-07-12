@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { existsSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import mineflayer, { type Bot } from 'mineflayer'
 import type { BackendEventEnvelope, BackendLifecyclePayload } from '../minecraft/contracts.js'
@@ -49,6 +49,10 @@ async function main(): Promise<void> {
     await server.stop()
     recorder.record('suite', 'cleanup', 'paper_stopped', {})
     recorder.writeSummary(results)
+    const consoleLog = path.join(runtimeDirectory, 'console.log')
+    if (existsSync(consoleLog)) copyFileSync(consoleLog, path.join(recorder.directory, 'paper-console.log'))
+    rmSync(runtimeDirectory, { recursive: true, force: true })
+    recorder.record('suite', 'cleanup', 'paper_runtime_removed', { runtimeDirectory })
   }
 }
 
