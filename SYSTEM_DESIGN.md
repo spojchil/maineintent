@@ -439,65 +439,52 @@ interface ContextPackage {
 模型不直接调用 Mineflayer，也不输出可执行代码。一次主决策返回一个受版本控制的结构化结果：
 
 ```ts
-interface CompanionDecision {
-  schemaVersion: 1
-  contextRevision: number
+interface CompanionDecisionV2 {
+  protocol: 'mineintent.decision.v2'
+  runId: string
+  context: DecisionContextRef
+  summary: string
+  effects: DecisionEffectV2[]
+}
 
-  interpretation?: {
-    addressedToCompanion?: boolean
-    interactionKind?: 'request' | 'proposal' | 'question' | 'warning' | 'social' | 'other'
-    situationUpdate?: string
-  }
+type DecisionEffectV2 =
+  | SpeechEffectV2
+  | ActivityEffect
+  | IntentEffect
+  | EmbodiedIntentEffect
+  | MemoryCandidateEffect
+  | AttentionEffectV2
 
-  speech?: Array<{
-    audience: string[]
-    text: string
-    timing: 'now' | 'after_action_accept' | 'after_action_result'
+interface SpeechEffectV2 {
+  kind: 'speech'
+  timing: 'now' | 'after_intent_accepted' | 'after_intent_terminal'
+  dependsOn?: string[]
+  text: string
+}
+
+interface AttentionEffectV2 {
+  kind: 'next_attention'
+  waitFor: Array<'player_message' | 'embodied_progress' | 'embodied_terminal' | 'world_event' | 'natural_opportunity'>
+  embodiedIntentIds?: string[]
+}
+
+interface EmbodiedIntentEffect {
+  kind: 'embodied_intent'
+  id: string
+  summary: string
+  desiredOutcome: string
+  referents: Array<{
+    role: string
+    selection:
+      | { kind: 'context_ref'; ref: string }
+      | { kind: 'message_referent'; eventId: string; expression: string }
   }>
-
-  activity?: {
-    operation: 'none' | 'propose' | 'update' | 'pause' | 'complete' | 'abandon'
-    summary?: string
-    contribution?: string
-    openQuestion?: string
-  }
-
-  intent?: {
-    summary: string
-    completionSignal?: string
-  }
-
-  embodiedIntent?: {
-    id: string
-    summary: string
-    desiredOutcome: string
-    referents: Array<{
-      role: string
-      selection:
-        | { kind: 'context_ref'; ref: string }
-        | { kind: 'message_referent'; eventId: string; expression: string }
-    }>
-    constraints?: {
-      maxDurationMs?: number
-      interruptibility?: 'immediate' | 'checkpoint'
-    }
-  }
-
-  memoryCandidates?: Array<{
-    kind: 'episode' | 'world_fact' | 'player_preference' | 'relationship' | 'commitment'
-    content: string
-    evidenceEventIds: string[]
-  }>
-
-  nextAttention?: {
-    waitFor: 'player' | 'action_progress' | 'action_terminal' | 'world_event' | 'natural_opportunity'
-  }
 }
 ```
 
 这是系统通信协议，不是人格规则。模型仍以自然语言理解和表达情境；结构只约束哪些状态变化和动作可以进入系统。
 
-模型不能提交世界坐标、协议实体 ID、Mineflayer 对象或内部操作器名称。`context_ref` 必须由 Context Composer 在本轮签发；`message_referent` 必须引用实际消息中的表达。两者都只是语义选择，尚不是可执行目标。
+V2 schema 没有选择内部操作器的字段，也不接受世界坐标、协议实体 ID、Mineflayer 对象或伪造引用。`context_ref` 必须由 Context Composer 在本轮签发；`message_referent` 必须引用实际消息中的表达。两者都只是语义选择，尚不是可执行目标。所有字符串都是语义数据：即使自然语言碰巧出现某个内部操作器名称，也不会因此获得执行权限，更不能因为词面相同就拒绝正常语言。
 
 系统不要求或持久保存模型的私有推理过程，只保存用于产品解释的简短意图、输入来源和最终决定。
 
@@ -517,6 +504,8 @@ interface CompanionDecision {
 Grounding 不用固定词表替代语言理解，也不允许模型伪造目标句柄。它验证本轮引用、话语角色、Cognitive Observation、当前活动目标和有来源记忆；证据不足时保持歧义或未知。Behavior Synthesizer 可以选择转头、转身、扫描、靠近或等待，但其内部操作器不出现在模型能力目录，也不能按玩家、方块、树等对象类别复制一组动作。
 
 Behavior Synthesizer 可以由确定性策略、模型辅助规划或两者组合实现；无论实现方式，它只能看到 grounded intent、角色已知空间和身体可供性，输出都必须通过相同的操作器 schema、资源锁、安全与证据预检。这样保留自然行为组合能力，同时不让任一模型直接执行代码或读取隐藏世界状态。
+
+Behavior Synthesizer 不得以玩家原话或 `desiredOutcome` 中是否包含“看、砍、跟随”等词来分派操作器。确定性实现若需要离散输入，必须消费上游语义解释形成的、与对象类别无关的期望状态/可供性约束，而不是原始字符串；模型辅助实现也必须满足同义表达等价和同可供性对象等价的测试。
 
 例如收到朋友发来的“看向我”时，模型理解“我”指说话者，并形成建立视觉共同注意的具身意图。如果当前没有说话者方向的感知或记忆证据，系统只能扫描、询问或利用后来获得的观察，不能读取墙后/身后的协议精确坐标直接转向。持续注视表示同一具身意图仍有效，由行为控制循环继续满足，不是另一个 `track_player` 技能。
 
