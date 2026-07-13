@@ -56,6 +56,7 @@ export class CompanionRuntime {
   #modelAbort?: AbortController
   #decisionTail = Promise.resolve()
   #activeCompletions = new Set<Promise<readonly ActionResult[]>>()
+  #backgroundTasks = new Set<Promise<void>>()
   #started = false
   #lastDangerAt = 0
 
@@ -108,6 +109,8 @@ export class CompanionRuntime {
     this.#actions.cancelAll(reason, true)
     try { this.#backend.controls().stop() } catch { /* backend may already be disconnected */ }
     await Promise.allSettled([...this.#activeCompletions])
+    await Promise.allSettled([...this.#backgroundTasks])
+    await this.#decisionTail
     this.#speech.stop(reason)
     this.#unsubscribe?.()
     await this.#backend.stop(reason)
@@ -119,7 +122,9 @@ export class CompanionRuntime {
   async idle(): Promise<void> {
     await this.#decisionTail
     await Promise.allSettled([...this.#activeCompletions])
+    await Promise.allSettled([...this.#backgroundTasks])
     await this.#decisionTail
+    await Promise.allSettled([...this.#backgroundTasks])
   }
 
   async #handleBackendEvent(event: BackendEventEnvelope): Promise<void> {
@@ -238,7 +243,8 @@ export class CompanionRuntime {
     if (decision.memory) this.#deferredMemories.set(actionId, { kind: decision.memory.kind, summary: decision.memory.summary, triggerEventId: trigger.eventId })
     const completion = submitted.completion
     this.#activeCompletions.add(completion)
-    void completion.then(results => this.#handleActionResults(results, trigger)).finally(() => this.#activeCompletions.delete(completion))
+    this.#trackBackground(completion.then(results => this.#handleActionResults(results, trigger)))
+    void completion.then(() => this.#activeCompletions.delete(completion), () => this.#activeCompletions.delete(completion))
   }
 
   async #handleActionResults(results: readonly ActionResult[], trigger: DecisionContext['trigger']): Promise<void> {
@@ -273,9 +279,9 @@ export class CompanionRuntime {
 
   async #completeActivity(evidence: Array<{ kind: 'event' | 'action_result'; id: string }>): Promise<void> {
     if (!this.#activity || this.#activity.status === 'completed') return
-    this.#activity = { ...this.#activity, status: 'completed' }
     const summary = `与${this.#primaryPlayer}一起收集木材，并回到了活动开始地点。`
     await this.#writeMemory('episode', summary, evidence)
+    this.#activity = { ...this.#activity, status: 'completed' }
     this.#refreshDebug()
   }
 
@@ -304,8 +310,11 @@ export class CompanionRuntime {
     if (submitted.accepted) {
       this.#speech.actionAccepted(actionId)
       this.#activeCompletions.add(submitted.completion)
-      void submitted.completion.then(results => this.#handleActionResults(results, { type: 'danger', eventId: randomUUID() }))
-        .finally(() => { this.#activeCompletions.delete(submitted.completion); this.#speech.setPressure('normal') })
+      this.#trackBackground(submitted.completion.then(results => this.#handleActionResults(results, { type: 'danger', eventId: randomUUID() })))
+      void submitted.completion.then(
+        () => { this.#activeCompletions.delete(submitted.completion); this.#speech.setPressure('normal') },
+        () => { this.#activeCompletions.delete(submitted.completion); this.#speech.setPressure('normal') },
+      )
     } else this.#speech.setPressure('normal')
   }
 
@@ -340,6 +349,12 @@ export class CompanionRuntime {
     const summary = error instanceof Error ? error.message : String(error)
     this.#debug.failure({ at: new Date().toISOString(), source, code, summary })
     void this.#journal.append(`${source}.failed`, { code, summary })
+  }
+
+  #trackBackground(task: Promise<void>): void {
+    const safe = task.catch(error => this.#recordFailure('runtime', 'background_task_failed', error))
+    this.#backgroundTasks.add(safe)
+    void safe.finally(() => this.#backgroundTasks.delete(safe))
   }
 }
 
