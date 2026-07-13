@@ -46,7 +46,7 @@
 5. 当前观察、最近观察、推断和记忆必须保留不同来源。
 6. 玩家行为观察可以产生假设，不能直接决定玩家意图或活动已放弃。
 7. Safety Control View 只能校验即将执行的单个局部动作；不能批量或远程探测、参与普通路线选择，结果也不能流入 Epistemic Map、语言、活动或记忆。
-8. 技能内部通过 `findBlocks` 得到的坐标不是认知发现。
+8. 驱动或内部操作器通过 `findBlocks` 得到的坐标不是认知发现，也不能直接成为 grounded referent。
 9. 维度切换、重连和世界切换立即清除当前可见状态。
 10. 感知调度不得阻塞 Threat Supervisor、协议处理或动作取消。
 
@@ -77,7 +77,7 @@ MineflayerBackend
 ### 4.1 代码约束
 
 - `Bot`、Prismarine `World`、raw entity、raw block 和 raw chunk 类型只能存在于 `src/minecraft/driver/`。
-- `src/perception/` 只读取 `ProtocolObservationSource` 和候选 DTO；`src/motor/`、`src/navigation/`、`src/actions/`、`src/skills/` 只使用版本化领域端口。
+- `src/perception/` 只读取 `ProtocolObservationSource` 和候选 DTO；`src/grounding/`、`src/behavior/`、`src/motor/`、`src/navigation/`、`src/actions/` 只使用版本化领域端口；`src/skills/` 仅保留 v0.1 兼容适配器。
 - `src/companion/`、`src/context/`、`src/models/`、`src/memory/`、`src/speech/` 只接收 Cognitive Observation、已验证事件和有来源记忆。
 - 跨边界只能使用本文 schema、领域事件、动作结果或已验证 MemoryRecord。
 - 通过 ESLint import restriction 和依赖图测试强制此边界；旧目录适配器必须关联迁移 Issue，不形成第二入口。
@@ -89,7 +89,7 @@ MineflayerBackend
 | 已加载区块完整方块 | 是 | 按需 | 否 |
 | 墙后碰撞 | 是 | 仅对下一局部动作返回最小安全结果 | 否 |
 | 未探索路线 | 是 | 禁止用于普通规划 | `unknown` |
-| `findBlocks` 全量命中 | 是 | 仅驱动内部候选；不可成为技能目标 | 否 |
+| `findBlocks` 全量命中 | 是 | 仅驱动内部候选；不可成为 grounded target | 否 |
 | 实体表精确坐标 | 是 | 威胁/动作可用 | 仅可见或最近估计 |
 | 未打开容器内容 | 可能有缓存/历史 | 交互时 | 否 |
 | 当前视野可见表面 | 可计算 | 可用 | 是 |
@@ -181,7 +181,7 @@ type VisibilityProofSummary = Pick<VisibilityProof,
   'result' | 'sampledPoints' | 'visiblePoints' | 'accumulatedAttenuation'>
 ```
 
-精确坐标只在 Perception、Action 和调试边界内使用。普通模型上下文使用 `RelativePosition`；当前技能确需指向方块时，Context Composer 才携带经过验证的 BlockPosition。
+精确坐标只在 Perception、Grounding 后的内部行为计划、Motor 和调试边界内使用。普通模型上下文使用 `RelativePosition` 与 opaque context ref；模型不能接收可直接执行的 BlockPosition。
 
 ## 6. 虚拟第一人称视口
 
@@ -360,7 +360,7 @@ interface BlockObservation {
 }
 ```
 
-只有技能需要精确交互时才保留 position；给模型的普通场景优先使用相对方向、距离带和聚类，减少坐标幻觉与上下文体积。
+只有 Grounding 后的内部交互计划确需精确定位时才保留 position；给模型的普通场景使用相对方向、距离带、聚类和 opaque ref，减少坐标幻觉与上下文体积。
 
 ### 9.2 候选生成
 
@@ -369,7 +369,7 @@ interface BlockObservation {
 1. 视口射线扇：按固定角度网格采样第一可见表面。
 2. 关注区域：对准星、玩家指向或当前 gaze 目标提高采样密度。
 3. 事件候选：`blockUpdate`、挖掘、放置、门/容器交互产生位置候选，再做模态和可见性验证。
-4. 技能候选：技能可用全量查询生成行动目标，但只有重新通过 Perception Boundary 后才能成为观察。
+4. 驱动候选：底层可用全量查询生成待检查候选，但只有重新通过 Perception Boundary 后才能成为观察，并经 Grounding 后才可能进入内部行为计划。
 
 ### 9.3 方块变化
 
@@ -584,18 +584,22 @@ BackendEventEnvelope<ProtocolSoundPayload>
 ```ts
 interface PerceptionQuery {
   id: string
-  mode: 'inspect_current_view' | 'inspect_target' | 'scan_direction' | 'watch_player' | 'refresh_scene'
-  target?: { entityKey?: string; position?: BlockPosition; relativeDirection?: string }
+  scope:
+    | { kind: 'current_viewport' }
+    | { kind: 'grounded_referent'; handle: string }
+  temporal:
+    | { kind: 'once' }
+    | { kind: 'while_intent_active'; embodiedIntentId: string }
   maxDurationMs: number
-  requestedBy: 'companion' | 'action' | 'system'
+  requestedBy: 'behavior' | 'action' | 'system'
   correlationId: string
 }
 ```
 
-- `inspect_current_view` 和 `refresh_scene` 不改变身体，可直接调度。
-- `inspect_target`/`scan_direction` 若需要转头，必须请求 gaze action；感知层本身不操作 Mineflayer。
-- gaze action 被接受并到达后才执行高密度采样。
-- `watch_player` 是有时限订阅，不能永久提升扫描频率。
+- Perception Query 只决定采样范围和时效，不解释玩家措辞、选择对象或改变身体。
+- `grounded_referent` 必须由本轮 Grounding 签发并仍然有效；它可以指向任何有证据的语义对象，接口不按玩家、方块或位置分型。
+- 若当前视口不覆盖 referent，Behavior Synthesizer 决定是否转头、转身、扫描、靠近或询问；Perception 不请求对象专用 gaze skill。
+- `while_intent_active` 是与具身意图生命周期绑定的有时限采样，不是 `watch_player`/`track_player` 特例；意图取消、过期或完成时立即停止。
 - query 仍受相同 FOV、遮挡、距离和 chunk 边界，不能成为透视 API。
 - 失败返回 blocked/out_of_range/unknown，让同伴自然询问或靠近。
 
@@ -688,7 +692,7 @@ interface CognitiveObservationSnapshot {
 - 删除已过期观察。
 - 当前 focused/nearby 与 `occluded_recently` 分组，禁止混写。
 - memory 内容进入 `retrieved_memories`，不进入 observations。
-- 精确坐标仅在当前技能/活动必要时注入。
+- 精确坐标不注入主模型；仅在 grounded intent 的内部计划确有必要时使用。
 - 每条保留 observation ID、modality、observedAt、validUntil、certainty。
 - 预算不足先丢低显著装饰，再丢重复普通实体；主要玩家、直接消息相关观察和威胁优先。
 - 声音只在未过期且与当前对话、活动、玩家、危险或显著变化相关时注入；音乐和普通 ambient 默认省略。
@@ -699,7 +703,7 @@ interface CognitiveObservationSnapshot {
 
 ### 18.1 动作
 
-- Action Runtime 可使用 Control View 做寻路、碰撞和技能预检。
+- Action Runtime 只能为即将执行的内部操作器使用 Control View 做单步碰撞与安全预检，不能为行为合成提供隐藏路线。
 - 动作结果只报告实际效果，不把内部路径搜索命中包装成发现。
 - gaze、靠近和交互可以创造新的感知机会，结果仍由 Perception Boundary 生成。
 - Threat Supervisor 可以因墙后协议实体采取防护，但同伴解释只能使用“我受到了威胁/需要躲避”等实际反馈，不能说出未感知目标细节。
@@ -772,7 +776,7 @@ src/perception/
 └── projection/current-observations.ts
 ```
 
-`ProtocolObservationSource` 由 Minecraft driver 提供最小只读接口；它不把完整 Bot 对象交给 PerceptionEngine 消费者。`findBlocks` 如被驱动用于粗候选生成，候选必须经过本文 FOV、光学与时效验证后才能成为 Observation；动作目标还必须引用该 Observation 并在执行前由准星重新验证，raw 命中不得直接传给技能。
+`ProtocolObservationSource` 由 Minecraft driver 提供最小只读接口；它不把完整 Bot 对象交给 PerceptionEngine 消费者。`findBlocks` 如被驱动用于粗候选生成，候选必须经过本文 FOV、光学与时效验证后才能成为 Observation；语义指代还必须经 Grounding 绑定该 Observation，内部交互计划在执行前再由准星验证，raw 命中不得直接传给 Behavior 或 Motor。
 
 ## 21. 可观察性
 
@@ -850,7 +854,7 @@ src/perception/
 
 ### 22.9 主动观察
 
-玩家说“看右边”：模型请求 scan_direction，gaze action 接受、转头并产生新 scene 后回答。若被墙挡住，返回 blocked/unknown，不从缓存猜目标。
+玩家说“看右边”：模型理解希望改变视觉注意并引用消息中的“右边”；Grounding 将其绑定为当前身体参考系下的语义方向，Behavior Synthesizer 形成转动/扫描计划，随后 Perception 产生新 scene。若被墙挡住，返回 blocked/unknown，不从缓存猜目标，也不调用 `scan_direction` 之类的话语专用技能。
 
 ### 22.10 压力与预算
 

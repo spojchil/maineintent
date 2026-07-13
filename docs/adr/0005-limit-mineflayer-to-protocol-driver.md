@@ -58,12 +58,17 @@ Mineflayer Protocol Driver
 |---|---|---|
 | `src/minecraft/driver/` | Mineflayer/Prismarine 原始类型、协议状态 | 输出未经归一化的 Bot/World/Entity/Block 给上层 |
 | `src/perception/` | `ProtocolObservationSource`、只读候选 DTO | 导入 Mineflayer/Prismarine 原始类型；把完整区块当作观察 |
-| `src/motor/` | `MotorPort`、目标引用、动作反馈 DTO | 直接调用 Bot 高层方法；自行选择认知目标 |
+| `src/grounding/` | 消息话语角色、Cognitive Observation、活动目标和有来源记忆 | 用固定关键词表冒充语言理解；用 raw entity/world 补全位置；输出无证据句柄 |
+| `src/behavior/` | grounded embodied intent、对象可供性、Epistemic Map、身体状态 | 接收玩家/方块等对象专用技能；读取 raw protocol；把内部操作器暴露给主模型 |
+| `src/motor/` | 通用内部操作器、grounded handle 的当前空间解、动作反馈 DTO | 直接解释玩家话语；按对象类别选择动作；自行建立认知目标 |
 | `src/navigation/` | Epistemic Map；仅单步调用 `SafetyProbe` | 读取 `bot.world`；批量/远程安全探测；用探测结果扩展路线 |
-| `src/actions/`、`src/skills/` | Perception、Motor、Navigation 的领域端口 | 导入原始客户端类型；通过 `findBlocks` 或 Pathfinder 绕过端口 |
+| `src/actions/` | Behavior 生成的内部操作器计划与资源契约 | 导入原始客户端类型；作为主模型命令目录；通过 `findBlocks` 或 Pathfinder 绕过端口 |
+| `src/skills/` | 仅 v0.1 兼容适配器 | 注册新的对象专用 model-facing skill；无迁移 Issue 长期保留 |
 | `src/companion/`、`src/context/`、`src/models/`、`src/memory/`、`src/speech/` | Cognitive Observation、已验证领域事件和有来源记忆 | 接收 Protocol/Control 原始状态 |
 
 Mineflayer 适配实现集中在 `src/minecraft/driver/`。依赖方向通过 ESLint import restriction 和架构测试强制；为迁移保留的旧适配器必须有移除 Issue，不能形成第二个合法入口。
+
+模型面对的是当前身体可供性、限制与证据要求，不是可调用 skill/operator 枚举。`look_at_player`、`look_at_block_face`、`track_player`、`follow_player` 等把对象类别编码进能力名的接口不得作为 v0.2 设计；现有实现只能处于明确有期限的兼容层。通用内部操作器可以硬编码身体效果与安全约束，但必须由 Grounding 后的 Behavior Synthesizer 选择。
 
 ### Safety Control 非泄漏契约
 
@@ -107,7 +112,7 @@ Mineflayer 适配实现集中在 `src/minecraft/driver/`。依赖方向通过 ES
 
 ### 代价
 
-- 不能直接依赖 Mineflayer 高层方法快速增加技能。
+- 不能直接依赖 Mineflayer 高层方法快速增加行为能力。
 - 需要实现虚拟第一人称感知、Epistemic Map、Motor Controller 和受限规划。
 - 某些 Mineflayer 插件会污染本地状态，可能需要替换插件或维护小型适配补丁。
 - 人类式未知性会降低传统任务 Bot 的最短路径成功率，这是有意的产品取舍。
