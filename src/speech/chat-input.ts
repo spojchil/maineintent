@@ -1,7 +1,7 @@
 import type { BackendEventEnvelope, ProtocolChatEvent } from '../minecraft/contracts.js'
 import type { ChatInputContext, PlayerChatMessage } from './contracts.js'
 
-const STOP_ZH = /^(?:请)?(?:你)?(?:先)?(?:停下|停一下|别动|不要动|停止|住手)(?:吧|！|!|。|\.)?$/u
+const STOP_ZH = /^(?:请)?(?:你)?(?:先)?(?:停下|停一下|等一下|等等|先等等|别动|不要动|停止|住手)(?:吧|！|!|。|\.)?$/u
 const STOP_EN = /^(?:please\s+)?(?:stop|hold on|wait|freeze)(?:\s+now)?[!.]?$/iu
 const AMBIGUOUS_PREFIX = /^(?:如果|要是|假如|when|if|unless|等.+再)/iu
 

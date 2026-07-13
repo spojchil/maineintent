@@ -254,6 +254,27 @@ export interface BackendReady {
   snapshot: Readonly<MinecraftSnapshotV1>
 }
 
+export interface GameBlockTarget {
+  name: string
+  position: BlockPosition
+}
+
+export interface GameThreat {
+  name: string
+  position: Vec3Value
+  distance: number
+}
+
+export interface MinecraftControlsApi {
+  findNearestBlock(names: readonly string[], maxDistance: number): GameBlockTarget | undefined
+  navigateNear(position: Vec3Value, range: number, signal: AbortSignal): Promise<void>
+  navigateToPlayer(username: string, range: number, signal: AbortSignal): Promise<void>
+  dig(position: BlockPosition, signal: AbortSignal): Promise<GameBlockTarget>
+  inventoryCount(names: readonly string[]): number
+  nearestThreat(maxDistance: number): GameThreat | undefined
+  stop(): void
+}
+
 export interface MinecraftBackendApi {
   start(signal: AbortSignal): Promise<BackendReady>
   stop(reason: string): Promise<void>
@@ -261,5 +282,6 @@ export interface MinecraftBackendApi {
   snapshot(): Readonly<MinecraftSnapshotV1>
   subscribe(listener: (event: BackendEventEnvelope) => void): Unsubscribe
   observationSource(): ProtocolObservationSource
+  controls(): MinecraftControlsApi
   sendChat(message: string): void
 }

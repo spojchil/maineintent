@@ -32,6 +32,7 @@ test('control detector only promotes standalone addressed safety stops', () => {
   assert.equal(interpretPlayerChat(chat('他说“停下”'), context)?.controlIntent, 'none')
   assert.equal(interpretPlayerChat(chat('停下', 'another-player'), { ...context, onlinePlayerUsernames: ['spojchil', 'another-player', 'MineIntentBot'] })?.controlIntent, 'none')
   assert.equal(isUnambiguousSafetyStop('MineIntentBot，停一下', 'MineIntentBot'), true)
+  assert.equal(isUnambiguousSafetyStop('等一下', 'MineIntentBot'), true)
 })
 
 test('segmentChat respects Unicode length and keeps ordered content', () => {
