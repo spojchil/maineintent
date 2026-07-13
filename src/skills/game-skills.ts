@@ -62,10 +62,14 @@ export function collectWoodSkill(controls: () => MinecraftControlsApi): SkillDef
         const target = game.findNearestBlock(WOOD_BLOCKS, args.maxDistance)
         if (!target) throw new Error(`No visible wood block within ${args.maxDistance} blocks`)
         await game.navigateNear(target.position, 3, signal)
+        const beforeDig = game.inventoryCount(WOOD_BLOCKS)
         const dug = await game.dig(target.position, signal)
         ctx.recordSideEffect({ type: 'block_dug', detail: `${dug.name}@${dug.position.x},${dug.position.y},${dug.position.z}` })
-        await game.navigateNear(target.position, 1, signal)
-        await abortableDelay(750, signal)
+        await abortableDelay(500, signal)
+        if (game.inventoryCount(WOOD_BLOCKS) <= beforeDig) {
+          await game.navigateNear(target.position, 2, signal)
+          await abortableDelay(750, signal)
+        }
       }
       return { before, after: game.inventoryCount(WOOD_BLOCKS) }
     },
