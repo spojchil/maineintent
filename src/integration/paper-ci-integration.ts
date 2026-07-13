@@ -76,7 +76,6 @@ async function companionPrototypeScenario() {
     name: 'companion-v0.1-vertical-slice', timeoutMs: 240_000,
     setup: async ctx => {
       player = await connectBot(playerName)
-      server.send(`tp ${playerName} 96 80 96`)
       server.send(`execute at ${playerName} run fill ~-8 ~-1 ~-8 ~12 ~-1 ~8 minecraft:stone`)
       server.send(`execute at ${playerName} run fill ~-8 ~ ~-8 ~12 ~5 ~8 minecraft:air`)
       for (let index = 3; index <= 9; index++) server.send(`execute at ${playerName} run setblock ~${index} ~ ~ minecraft:oak_log`)
@@ -91,7 +90,7 @@ async function companionPrototypeScenario() {
       runtime = first.runtime; backend = first.backend
       await runtime.start()
       server.send(`tp ${companionName} ${player!.entity.position.x} ${player!.entity.position.y} ${player!.entity.position.z + 1}`)
-      await waitUntil(() => backend!.snapshot().self.position.x > 90, 10_000, 'companion fixture teleport')
+      await waitUntil(() => distance(backend!.snapshot().self.position, player!.entity.position) < 3, 10_000, 'companion fixture teleport')
       await waitUntil(() => messages.some(message => message.includes('我来了')), 10_000, 'natural greeting')
 
       player!.chat('一起收集些木头吧')
