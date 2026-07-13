@@ -45,7 +45,7 @@
 4. `entityGone` 只表示协议跟踪结束，不能自动宣称死亡或看见离开。
 5. 当前观察、最近观察、推断和记忆必须保留不同来源。
 6. 玩家行为观察可以产生假设，不能直接决定玩家意图或活动已放弃。
-7. Safety Control View 可以为硬碰撞、跌落和即时威胁使用更多数据，但不能选择普通路线，也不能流入语言、活动或记忆。
+7. Safety Control View 只能校验即将执行的单个局部动作；不能批量或远程探测、参与普通路线选择，结果也不能流入 Epistemic Map、语言、活动或记忆。
 8. 技能内部通过 `findBlocks` 得到的坐标不是认知发现。
 9. 维度切换、重连和世界切换立即清除当前可见状态。
 10. 感知调度不得阻塞 Threat Supervisor、协议处理或动作取消。
@@ -76,19 +76,20 @@ MineflayerBackend
 
 ### 4.1 代码约束
 
-- `Bot`、Prismarine `World`、raw entity 和 raw chunk 类型只能存在于 `src/minecraft/`、`src/perception/`、`src/actions/`、`src/skills/`。
-- `src/companion/`、`src/context/`、`src/models/`、`src/memory/` 禁止导入 Mineflayer 或 Prismarine world/entity/block 类型。
+- `Bot`、Prismarine `World`、raw entity、raw block 和 raw chunk 类型只能存在于 `src/minecraft/driver/`。
+- `src/perception/` 只读取 `ProtocolObservationSource` 和候选 DTO；`src/motor/`、`src/navigation/`、`src/actions/`、`src/skills/` 只使用版本化领域端口。
+- `src/companion/`、`src/context/`、`src/models/`、`src/memory/`、`src/speech/` 只接收 Cognitive Observation、已验证事件和有来源记忆。
 - 跨边界只能使用本文 schema、领域事件、动作结果或已验证 MemoryRecord。
-- 通过 ESLint import restriction 或依赖图测试强制此边界。
+- 通过 ESLint import restriction 和依赖图测试强制此边界；旧目录适配器必须关联迁移 Issue，不形成第二入口。
 
 ### 4.2 信息权限矩阵
 
 | 信息 | Protocol | Control | Cognitive |
 |---|---:|---:|---:|
 | 已加载区块完整方块 | 是 | 按需 | 否 |
-| 墙后碰撞 | 是 | 仅硬安全校验 | 否 |
+| 墙后碰撞 | 是 | 仅对下一局部动作返回最小安全结果 | 否 |
 | 未探索路线 | 是 | 禁止用于普通规划 | `unknown` |
-| `findBlocks` 全量命中 | 是 | 技能可用 | 否 |
+| `findBlocks` 全量命中 | 是 | 仅驱动内部候选；不可成为技能目标 | 否 |
 | 实体表精确坐标 | 是 | 威胁/动作可用 | 仅可见或最近估计 |
 | 未打开容器内容 | 可能有缓存/历史 | 交互时 | 否 |
 | 当前视野可见表面 | 可计算 | 可用 | 是 |
@@ -771,7 +772,7 @@ src/perception/
 └── projection/current-observations.ts
 ```
 
-`ProtocolObservationSource` 由 #14 Backend 提供最小只读接口；它不把完整 Bot 对象交给 PerceptionEngine 消费者。设计 #24 可以先完成，具体适配在 #14 实现时共同锁定。
+`ProtocolObservationSource` 由 Minecraft driver 提供最小只读接口；它不把完整 Bot 对象交给 PerceptionEngine 消费者。`findBlocks` 如被驱动用于粗候选生成，候选必须经过本文 FOV、光学与时效验证后才能成为 Observation；动作目标还必须引用该 Observation 并在执行前由准星重新验证，raw 命中不得直接传给技能。
 
 ## 21. 可观察性
 

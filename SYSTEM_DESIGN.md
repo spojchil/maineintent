@@ -608,6 +608,8 @@ Protocol State
 
 同伴模型默认只接收 Cognitive Observation 和有来源的记忆。原始已加载区块只能用于硬安全和协议校验，不能让普通寻路直接利用未感知迷宫、遮挡后通道或隐藏资源。普通路线由 Epistemic Map 规划；未知区域必须通过观察和探索转为已知。Mineflayer 的长期角色边界见 [ADR 0005](./docs/adr/0005-limit-mineflayer-to-protocol-driver.md)。
 
+Safety Control 只校验 Motor Controller 已选定且即将执行的一个局部动作，并只返回最小的允许、拒绝或风险结果。Intentional Planner 不得用它批量探测远端、展开 A*、排序路线或预判可达性；安全拒绝也不向 Epistemic Map、语言或记忆写入隐藏地形知识。若需要知道“为什么过不去”，同伴必须转头、靠近或以其他正常感知取得证据。
+
 ### 14.2 观察类型
 
 - 自身：生命、饥饿、装备、背包摘要、状态效果。
@@ -975,8 +977,11 @@ TelemetrySink
 
 ```text
 src/
-├── minecraft/       # Mineflayer adapter, raw state, atomic controls
-├── perception/      # visibility, observations, event normalization
+├── minecraft/       # driver adapters; raw Mineflayer/Prismarine types stop here
+│   └── driver/      # protocol state, observation/motor/safety port implementations
+├── perception/      # visibility and observations from read-only protocol DTOs
+├── motor/           # embodied commands and result verification ports
+├── navigation/      # epistemic planning and single-step safety contract
 ├── events/          # domain events, bus, journal, projections
 ├── companion/       # runtime, attention, conversation, activity, intent
 ├── context/         # context composition, provenance, budgets
@@ -992,6 +997,8 @@ src/
 ```
 
 目录是边界提示，不要求每个目录立即成为独立包。
+
+`src/perception/`、`src/motor/`、`src/navigation/`、`src/actions/` 和 `src/skills/` 均不得导入 Mineflayer/Prismarine 原始类型；唯一适配入口及迁移规则见 ADR 0005。
 
 ## 23. 关键设计决定
 

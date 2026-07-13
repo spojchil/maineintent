@@ -44,13 +44,37 @@ Mineflayer Protocol Driver
 
 ### 高层自动化限制
 
-- `findBlock` 结果只能生成内部候选，不能直接成为认知发现或玩家指代的目标；
+- `findBlock` 结果只能在协议驱动内部生成待验证候选，不能直接成为认知发现、玩家指代或动作目标；
 - `bot.players` 和实体表只能生成候选，不能证明当前可见；
-- `bot.world` 可以用于防止穿墙、跌落等硬安全校验，不能为普通意图选择未感知路线；
+- `bot.world` 只能对“下一次即将发出的局部动作”做穿墙、跌落、即时威胁和协议合法性校验；不能批量探测远处、参与 A* 展开或路线排序，也不能把拒绝原因写入 Epistemic Map；
 - 挖掘目标必须来自当前准星射线命中的可交互方块面；
 - Mineflayer 的本地乐观更新只表示预测，不能生成成功领域事件；
 - 普通寻路只能使用当前感知或历史探索形成的 Epistemic Map；未知区域必须通过探索获得；
 - 业务层不得直接导入 Mineflayer Bot、World、Entity、Block 或 Pathfinder 类型。
+
+### 模块依赖矩阵
+
+| 模块 | 允许输入 | 禁止事项 |
+|---|---|---|
+| `src/minecraft/driver/` | Mineflayer/Prismarine 原始类型、协议状态 | 输出未经归一化的 Bot/World/Entity/Block 给上层 |
+| `src/perception/` | `ProtocolObservationSource`、只读候选 DTO | 导入 Mineflayer/Prismarine 原始类型；把完整区块当作观察 |
+| `src/motor/` | `MotorPort`、目标引用、动作反馈 DTO | 直接调用 Bot 高层方法；自行选择认知目标 |
+| `src/navigation/` | Epistemic Map；仅单步调用 `SafetyProbe` | 读取 `bot.world`；批量/远程安全探测；用探测结果扩展路线 |
+| `src/actions/`、`src/skills/` | Perception、Motor、Navigation 的领域端口 | 导入原始客户端类型；通过 `findBlocks` 或 Pathfinder 绕过端口 |
+| `src/companion/`、`src/context/`、`src/models/`、`src/memory/`、`src/speech/` | Cognitive Observation、已验证领域事件和有来源记忆 | 接收 Protocol/Control 原始状态 |
+
+Mineflayer 适配实现集中在 `src/minecraft/driver/`。依赖方向通过 ESLint import restriction 和架构测试强制；为迁移保留的旧适配器必须有移除 Issue，不能形成第二个合法入口。
+
+### Safety Control 非泄漏契约
+
+`SafetyProbe` 只接受 Motor Controller 已经选定、即将执行的一个局部动作，并只返回执行所需的最小 `allow / deny / risk` 结果。它不得：
+
+- 接受候选路线集合、远端坐标或可被调用方用于扫描地图的批量查询；
+- 被 Intentional Planner 用于 A* 节点展开、启发式估值、路线排名或可达性预判；
+- 返回隐藏方块类型、精确几何、替代通路或拒绝动作之外的世界信息；
+- 因拒绝某一步而给 Epistemic Map、语言、活动判断或记忆新增“那里有墙/悬崖”等知识。
+
+安全拒绝只会终止或要求重新观察当前动作。角色若要理解原因，必须通过正常感知取得证据。
 
 ### 结果权威
 
@@ -59,9 +83,11 @@ Mineflayer Protocol Driver
 1. `commanded`：Motor Controller 已发出协议动作；
 2. `client_predicted`：客户端库产生本地预测；
 3. `server_observed`：收到服务端来源的状态变化；
-4. `outcome_verified`：动作特定后置条件成立，例如背包增量。
+4. `outcome_verified`：由正式客户端可观察证据证明动作特定后置条件成立，例如服务端来源方块状态、掉落物状态与背包增量在受控关联窗口内一致。
 
-语言、共同活动和记忆只能把 `server_observed` 或 `outcome_verified` 表达为已发生事实。开发和 CI 可以使用 Paper 测试裁判提供更强证据，但正式产品不能依赖服务器管理权限。
+语言、共同活动和记忆只能把 `server_observed` 或 `outcome_verified` 表达为已发生事实。正式产品的 `outcome_verified` 不依赖 Paper、OP、RCON 或服务器文件。开发和 CI 可以使用 Paper 测试裁判独立核对生产判定，但裁判证据不进入同伴认知，也不参与生产结果计算。
+
+测试裁判不能仅靠时间戳猜测关联。测试在动作开始前用 `scenario_run_id + action_id + player_uuid + target` 注册预期观察窗口，Paper artifact 回传相同关联字段；坐标、物品与有限时间窗只用于交叉校验和诊断。
 
 ## 理由
 
