@@ -99,16 +99,19 @@ async function companionPrototypeScenario() {
       assert.ok(activityAnchor)
       player!.chat('等一下')
       await waitUntil(() => runtime!.activity()?.status === 'paused' && !first.debug.snapshot().currentAction, 15_000, 'deterministic pause')
-      assert.equal(messages.some(message => message.includes('停下')), true)
+      await waitUntil(() => messages.some(message => message.includes('停下')), 5_000, 'pause acknowledgement')
+      ctx.record('assertion', 'pause_verified', { wood: woodCount(backend.snapshot()) })
 
       const woodBeforeResume = woodCount(backend.snapshot())
       player!.chat('继续吧')
       await waitUntil(() => woodCount(backend!.snapshot()) >= woodBeforeResume + 2, 60_000, 'verified wood pickup after resume')
+      ctx.record('assertion', 'resume_and_pickup_verified', { before: woodBeforeResume, after: woodCount(backend.snapshot()) })
 
       server.send(`damage ${companionName} 13`)
       await waitUntil(() => messages.some(message => message.includes('有危险')), 15_000, 'danger warning')
       server.send(`effect give ${companionName} minecraft:instant_health 1 5 true`)
       await waitUntil(() => backend!.snapshot().self.health > 8, 10_000, 'companion healed')
+      ctx.record('assertion', 'danger_response_verified', { health: backend.snapshot().self.health })
 
       player!.chat('够了，我们回刚才那里吧')
       await waitUntil(() => runtime!.activity()?.status === 'completed', 90_000, 'activity completion')
