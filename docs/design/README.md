@@ -12,3 +12,5 @@
 - [Mineflayer Backend 生命周期与状态快照](./minecraft-backend.md)
 
 详细设计应关联 GitHub Issue，并说明状态、依赖、非目标和验收方式。设计变更如果影响长期架构决定，还需要新增或更新 ADR。
+
+按里程碑组织的实施顺序见 [阶段计划](../plans/README.md)。

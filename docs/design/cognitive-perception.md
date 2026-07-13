@@ -45,7 +45,7 @@
 4. `entityGone` 只表示协议跟踪结束，不能自动宣称死亡或看见离开。
 5. 当前观察、最近观察、推断和记忆必须保留不同来源。
 6. 玩家行为观察可以产生假设，不能直接决定玩家意图或活动已放弃。
-7. Control View 可以为物理和安全使用更多数据，但不能流入语言、活动或记忆。
+7. Safety Control View 可以为硬碰撞、跌落和即时威胁使用更多数据，但不能选择普通路线，也不能流入语言、活动或记忆。
 8. 技能内部通过 `findBlocks` 得到的坐标不是认知发现。
 9. 维度切换、重连和世界切换立即清除当前可见状态。
 10. 感知调度不得阻塞 Threat Supervisor、协议处理或动作取消。
@@ -60,8 +60,8 @@ MineflayerBackend
     ├── self state / chat / sound / interaction feedback
     └── connection / dimension / game mode
              │
-             ├──────────────→ Control View
-             │                physics / pathfinding / threat / skill queries
+             ├──────────────→ Safety Control View
+             │                collision / fall prevention / immediate threat / protocol validity
              │
              └─ Perception Boundary
                 candidate generation
@@ -71,7 +71,7 @@ MineflayerBackend
                 → salience / aggregation
                 → Cognitive Observation
                      ↓
-                Event Hub / Companion Runtime / Context Composer / Memory candidates
+                Epistemic Map / Event Hub / Companion Runtime / Context Composer / Memory candidates
 ```
 
 ### 4.1 代码约束
@@ -86,7 +86,8 @@ MineflayerBackend
 | 信息 | Protocol | Control | Cognitive |
 |---|---:|---:|---:|
 | 已加载区块完整方块 | 是 | 按需 | 否 |
-| 墙后碰撞与路径 | 是 | 是 | 否 |
+| 墙后碰撞 | 是 | 仅硬安全校验 | 否 |
+| 未探索路线 | 是 | 禁止用于普通规划 | `unknown` |
 | `findBlocks` 全量命中 | 是 | 技能可用 | 否 |
 | 实体表精确坐标 | 是 | 威胁/动作可用 | 仅可见或最近估计 |
 | 未打开容器内容 | 可能有缓存/历史 | 交互时 | 否 |

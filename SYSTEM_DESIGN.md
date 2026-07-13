@@ -592,15 +592,21 @@ Companion Runtime 再决定解释、恢复、改变计划或向玩家求助。
 ```text
 Protocol State
   Mineflayer 已收到的完整即时数据
-        ↓
-Control View
-  物理、碰撞、寻路和反射需要的数据
-        ↓
-Cognitive Observation
-  一个合理玩家在当前情境中可以感知、注意或回忆的信息
+        ├──→ Safety Control View
+        │      硬碰撞、跌落、即时威胁和协议合法性；不能选择隐藏路线
+        └──→ Perception Boundary
+                 ↓
+             Cognitive Observation
+               一个合理玩家当前可以感知的信息
+                 ↓
+             Epistemic Map
+               当前观察、亲自探索和仍然记得的空间
+                 ↓
+             Intentional Planner
+               普通行动只能使用角色已知空间
 ```
 
-同伴模型默认只接收 Cognitive Observation。底层寻路可以使用已加载区块做碰撞规划，但不能因此向同伴宣称发现了遮挡后的矿物。
+同伴模型默认只接收 Cognitive Observation 和有来源的记忆。原始已加载区块只能用于硬安全和协议校验，不能让普通寻路直接利用未感知迷宫、遮挡后通道或隐藏资源。普通路线由 Epistemic Map 规划；未知区域必须通过观察和探索转为已知。Mineflayer 的长期角色边界见 [ADR 0005](./docs/adr/0005-limit-mineflayer-to-protocol-driver.md)。
 
 ### 14.2 观察类型
 
