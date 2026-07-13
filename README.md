@@ -6,16 +6,20 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 ## 当前状态
 
-项目处于产品与系统设计完成、准备进入首个纵向原型的阶段，尚不是可供日常游玩的成品。
+项目已经实现首个纵向原型，但仍是开发者预览，尚不是可供长期日常游玩的成品。
 
 目前已经完成：
 
 - 产品定位与体验设计。
 - 相邻 Agent、AI 伴侣和 Minecraft Bot 项目调研。
 - 事件驱动的持续同伴系统设计。
-- Mineflayer 4.37.1 与本地 Paper 1.21.1 的连接冒烟测试。
+- Mineflayer Backend、认知观察边界、受约束动作运行时与聊天调度。
+- “一起收集木材”共同活动的聊天、采集、暂停、危险反射、返回和跨重启记忆闭环。
+- OpenAI-compatible 模型适配器、可编辑自然语言同伴档案与本地持久数据。
+- 只绑定本机、只读且脱敏的同伴调试状态接口。
+- 基于持久基准世界副本的 Paper 1.21.1 self-hosted 集成测试。
 
-首个目标是验证最小同伴闭环：玩家与 AI 通过游戏聊天形成“共同收集木材”的活动，AI 能参与、接受中途调整、处理简单意外、验证真实结果，并在重启后记住共同经历。
+当前原型用来验证最小同伴闭环：玩家与 AI 通过游戏聊天形成“共同收集木材”的活动，AI 能参与、接受中途调整、处理简单意外、验证真实结果，并在重启后记住共同经历。它还没有完整生存能力树、成熟战斗或长期自主规划。
 
 真实 Paper 1.21.1 测试的本地与 self-hosted CI 用法见 [Paper 集成测试](./docs/testing/paper-integration.md)。
 
@@ -69,7 +73,25 @@ pnpm check
 pnpm test
 ```
 
-在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 集成验收：
+## 运行首个同伴原型
+
+复制配置样例并填写主要玩家名、模型服务地址、模型名和密钥：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+确保目标 Minecraft Java Edition 1.21.1 服务器已经运行，再启动：
+
+```powershell
+pnpm start
+```
+
+同伴通过游戏聊天与主要玩家交流。默认调试状态位于 `http://127.0.0.1:3211/v1/state`；该接口只有 GET 能力，不提供游戏控制，并会遮盖密钥、令牌和原始私人正文。
+
+当前模型适配器使用 OpenAI-compatible Chat Completions JSON 输出。密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
+
+在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 生命周期集成验收：
 
 ```powershell
 pnpm test:paper

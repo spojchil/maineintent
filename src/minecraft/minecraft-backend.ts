@@ -10,6 +10,7 @@ import type {
   BlockPosition,
   MinecraftBackendApi,
   MinecraftBackendConfig,
+  MinecraftControlsApi,
   MinecraftSnapshotV1,
   ProtocolBlockEvent,
   ProtocolChatEvent,
@@ -31,6 +32,8 @@ import type {
 } from './internal.js'
 import { systemClock, systemRandom, systemScheduler } from './internal.js'
 import { DefaultMineflayerBotFactory } from './mineflayer-bot-factory.js'
+import { MineflayerGameControls } from './game-controls.js'
+import type { Bot } from 'mineflayer'
 import { buildSnapshot, isReady } from './snapshot.js'
 
 interface BackendDependencies {
@@ -195,6 +198,12 @@ export class MinecraftBackend implements MinecraftBackendApi {
     if (!active || this.#state.status !== 'ready') throw new BackendNotReadyError()
     if (typeof message !== 'string' || message.length === 0 || /[\r\n\0]/.test(message)) throw new TypeError('Chat message must be non-empty single-line text')
     active.bot.chat(message)
+  }
+
+  controls(): MinecraftControlsApi {
+    const active = this.#active
+    if (!active || this.#state.status !== 'ready') throw new BackendNotReadyError()
+    return new MineflayerGameControls(active.bot as unknown as Bot)
   }
 
   observationSource(): ProtocolObservationSource {
