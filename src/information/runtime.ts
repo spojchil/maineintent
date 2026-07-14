@@ -310,6 +310,23 @@ export class InformationRuntime {
     if (scopeChanged(scopeBefore, scopeAfter, provider.definition.scopeDependencies)) {
       return error('scope_changed', 'The information scope changed during the read.', request.interfaceId)
     }
+    let availabilityAfter: ReturnType<RegisteredInformationProvider['availability']>
+    try {
+      availabilityAfter = provider.availability(this.#providerContext(
+        request.interfaceId,
+        caller,
+        grant,
+        scopeAfter,
+      ))
+      validateAvailability(provider, availabilityAfter)
+    } catch {
+      return error('provider_failed', 'The information provider could not confirm its revision.', request.interfaceId)
+    }
+    if (availabilityAfter.informationRevision !== internal.informationRevision) {
+      return pagination.expectedInformationRevision !== undefined
+        ? error('invalid_page', 'The paged information changed during the read.', request.interfaceId)
+        : error('scope_changed', 'The information changed during the read.', request.interfaceId)
+    }
     if (request.selector &&
         !this.#selectorSourceIsCurrent(caller, grant, request.selector, scopeAfter)) {
       return error('invalid_selector', 'The selector source changed during the read.', request.interfaceId)

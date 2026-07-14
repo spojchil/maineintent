@@ -83,16 +83,21 @@ function statusDefinition(
 function statusProvider(options: {
   id?: InformationInterfaceId
   audiences?: InformationProviderDefinition<StatusValues>['audiences']
+  availabilityRevision?: () => number
+  throwOnAvailability?: boolean
   beforeRead?: () => void
   mutateResult?: (result: ProviderReadResult<StatusValues, never>) => void
 } = {}) {
   return new FakeInformationProvider<StatusValues>({
     definition: statusDefinition(options.id, options.audiences),
-    availability: () => ({
-      overall: 'available',
-      informationRevision: 7,
-      fields: {},
-    }),
+    availability: () => {
+      if (options.throwOnAvailability) throw new Error('availability failed')
+      return {
+        overall: 'available',
+        informationRevision: options.availabilityRevision?.() ?? 7,
+        fields: {},
+      }
+    },
     read: async (_context, request) => {
       options.beforeRead?.()
       const values: Partial<StatusValues> = {}
@@ -276,7 +281,7 @@ test('runtime preserves partial reads without filling unavailable fields', async
   ])
 })
 
-test('runtime discards provider leaks and reads racing a scope change', async () => {
+test('runtime discards provider leaks and reads racing a scope or public projection change', async () => {
   const leaking = statusProvider({
     mutateResult: (result) => {
       Object.assign(result.values, { hidden_saturation: 4.2 })
@@ -311,6 +316,42 @@ test('runtime discards provider leaks and reads racing a scope change', async ()
     fields: ['health'],
   }, new AbortController().signal)
   assert.equal('code' in raced ? raced.code : undefined, 'scope_changed')
+
+  let publicRevision = 7
+  const projectionRacing = statusProvider({
+    availabilityRevision: () => publicRevision,
+    mutateResult: () => {
+      publicRevision = 8
+    },
+  })
+  const projectionRaced = await setup([projectionRacing]).runtime.query(caller, {
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'current_status:1',
+    fields: ['health'],
+  }, new AbortController().signal)
+  assert.equal('code' in projectionRaced ? projectionRaced.code : undefined, 'scope_changed')
+
+  const provenanceOnly = statusProvider({
+    mutateResult: (result) => {
+      result.source.sourceRevision = 99
+    },
+  })
+  const provenanceChanged = await setup([provenanceOnly]).runtime.query(caller, {
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'current_status:1',
+    fields: ['health'],
+  }, new AbortController().signal)
+  assert.deepEqual('values' in provenanceChanged ? provenanceChanged.values : {}, { health: 18 })
+
+  const unavailableRevision = await setup([statusProvider({ throwOnAvailability: true })]).runtime.query(caller, {
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'current_status:1',
+    fields: ['health'],
+  }, new AbortController().signal)
+  assert.equal('code' in unavailableRevision ? unavailableRevision.code : undefined, 'provider_failed')
 })
 
 test('runtime rebuilds nested fields from parsed Zod data and enforces declared sources', async () => {

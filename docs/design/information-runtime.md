@@ -417,6 +417,8 @@ interface InformationScopeSource {
 
 Runtime 在调用 Provider 前后各捕获一次 scope。若 Provider 所声明依赖的 epoch、world 或 screen 已改变，Runtime 丢弃内部结果并返回 `scope_changed`，不能把旧结果包装成新 scope。
 
+scope 不变仍不足以证明普通首屏 Read 没有跨过 Provider projection commit。Runtime 在每次 Provider `read()` 返回且 scope 复核通过后，必须以 `scopeAfter` 再调用同一 Provider 的同步 `availability()`，并比较其**公开** `informationRevision` 与结果 revision。不同则丢弃：续页返回 `invalid_page`，非续页使用现有 `scope_changed` 表示调用方应重试。这里不能比较内部 source/provenance revision，否则 acquisition-only 或被过滤的 raw 更新会形成侧信道。该后验检查适用于所有 Read，不只 cursor 或 selector。
+
 不同 Provider 的 Read 默认不保证跨接口原子性。Context Composer 需要组合多个结果时保存各自 `readId`、revision 和 observedAt；v0.2 不增加能一次导出所有状态的 `batch_snapshot`。
 
 ## 10. Selector 与 cursor
@@ -859,6 +861,7 @@ Tool result 是模型事实输入，不是私有思维链。每个 Read 的 `rea
 | schema 变化 | `stale_schema` | 返回当前 revision |
 | selector 已失效或签发源 revision 已改变 | `invalid_selector` 或字段 `stale_selector` | 删除/拒绝 ref，丢弃读取中的结果 |
 | scope 在读取中变化 | `scope_changed` | 丢弃 Provider 结果 |
+| Provider 公开 projection 在普通 Read 中变化 | `scope_changed`；续页为 `invalid_page` | 后验复核公开 `informationRevision`，丢弃旧结果 |
 | Tool Session 超额 | `budget_exceeded` | 停止本轮额外 Read |
 | Abort/deadline | `deadline_exceeded` | 取消 Provider |
 | Provider 抛错/输出越界 | `provider_failed` | privileged telemetry；阻止结果进入认知 |

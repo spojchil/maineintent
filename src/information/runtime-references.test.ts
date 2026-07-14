@@ -204,13 +204,17 @@ test('runtime issues and consumes scope-bound continuation cursors', async () =>
     },
     limits: { maxFieldsPerRead: 1, maxResultBytes: 4_096, timeoutMs: 100 },
   } satisfies InformationProviderDefinition<PagedValues>
+  let revision = 5
+  let advanceDuringContinuation = false
   const provider = new FakeInformationProvider<PagedValues, never, PageState>({
     definition,
-    availability: () => ({ overall: 'available', informationRevision: 5, fields: {} }),
+    availability: () => ({ overall: 'available', informationRevision: revision, fields: {} }),
     read: async (_context, request) => {
       const offset = request.page.state?.offset ?? 0
+      const readRevision = revision
+      if (request.page.state && advanceDuringContinuation) revision += 1
       return {
-        informationRevision: 5,
+        informationRevision: readRevision,
         values: { entries: [0, 1, 2, 3].slice(offset, offset + request.page.limit) },
         unavailable: [],
         source: {
@@ -250,4 +254,23 @@ test('runtime issues and consumes scope-bound continuation cursors', async () =>
   }, new AbortController().signal)
   assert.deepEqual('values' in second ? second.values : {}, { entries: [2, 3] })
   assert.equal('nextCursor' in second ? second.nextCursor : undefined, undefined)
+
+  const racingFirst = await runtime.query(caller, {
+    interfaceId: 'inventory_information',
+    operation: 'read',
+    schemaRevision: 'paged:1',
+    fields: ['entries'],
+    page: { limit: 2 },
+  }, new AbortController().signal)
+  const racingCursor = 'nextCursor' in racingFirst ? racingFirst.nextCursor : undefined
+  assert.ok(racingCursor)
+  advanceDuringContinuation = true
+  const racedPage = await runtime.query(caller, {
+    interfaceId: 'inventory_information',
+    operation: 'read',
+    schemaRevision: 'paged:1',
+    fields: ['entries'],
+    page: { cursor: racingCursor, limit: 2 },
+  }, new AbortController().signal)
+  assert.equal('code' in racedPage ? racedPage.code : undefined, 'invalid_page')
 })
