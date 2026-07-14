@@ -4,4 +4,5 @@
 
 ## 计划
 
-- [v0.2：可信具身闭环](./v0.2-trustworthy-embodiment.md)
+- [v0.2：合法信息与界面接口](./v0.2-legal-information-interfaces.md)
+- [v0.3：可信具身闭环](./v0.3-trustworthy-embodiment.md)

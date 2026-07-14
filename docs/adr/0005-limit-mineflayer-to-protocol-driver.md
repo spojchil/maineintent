@@ -26,13 +26,13 @@ v0.1 真人联调证明 Mineflayer 适合承担登录、协议、区块、实体
 ```text
 Mineflayer Protocol Driver
 ├── Protocol State          服务端实际发送的原始客户端状态
-├── Safety Control View     碰撞、跌落、即时威胁与协议合法性
+├── Safety Control View     下一输入的碰撞、跌落与协议合法性
 ├── Perception Boundary     FOV、光学遮挡、声音、交互反馈
 │        ↓
 ├── Epistemic Map           当前看见、亲自探索和仍然记得的空间
 │        ↓
 ├── Intentional Planner     只能利用 Epistemic Map 选择普通路线
-└── Motor Controller        注视、移动、准星交互和服务端结果确认
+└── Motor Controller        视角/方向键/左右键/GUI 输入与反馈
 ```
 
 ### 协议驱动允许承担
@@ -46,8 +46,8 @@ Mineflayer Protocol Driver
 
 - `findBlock` 结果只能在协议驱动内部生成待验证候选，不能直接成为认知发现、玩家指代或动作目标；
 - `bot.players` 和实体表只能生成候选，不能证明当前可见；
-- `bot.world` 只能对“下一次即将发出的局部动作”做穿墙、跌落、即时威胁和协议合法性校验；不能批量探测远处、参与 A* 展开或路线排序，也不能把拒绝原因写入 Epistemic Map；
-- 挖掘目标必须来自当前准星射线命中的可交互方块面；
+- `bot.world` 只能对“下一次即将发出的局部输入”做碰撞、跌落和协议合法性校验；不能批量探测远处、参与 A* 展开或路线排序，也不能把拒绝原因写入 Epistemic Map。Safety 不能依据未感知 raw entity 选择躲避方向；
+- 挖掘目标必须追溯到合法 Information Read/Grounding，并在 controller 执行时重新验证当前可交互性；controller 可以内部调整视角并复用 `bot.dig`，不能从 loaded world 自行换目标；
 - Mineflayer 的本地乐观更新只表示预测，不能生成成功领域事件；
 - 普通寻路只能使用当前感知或历史探索形成的 Epistemic Map；未知区域必须通过探索获得；
 - 业务层不得直接导入 Mineflayer Bot、World、Entity、Block 或 Pathfinder 类型。
@@ -59,16 +59,19 @@ Mineflayer Protocol Driver
 | `src/minecraft/driver/` | Mineflayer/Prismarine 原始类型、协议状态 | 输出未经归一化的 Bot/World/Entity/Block 给上层 |
 | `src/perception/` | `ProtocolObservationSource`、只读候选 DTO | 导入 Mineflayer/Prismarine 原始类型；把完整区块当作观察 |
 | `src/grounding/` | 消息话语角色、Cognitive Observation、活动目标和有来源记忆 | 用固定关键词表冒充语言理解；用 raw entity/world 补全位置；输出无证据句柄 |
-| `src/behavior/` | grounded embodied intent、对象可供性、Epistemic Map、身体状态 | 接收玩家/方块等对象专用技能；读取 raw protocol；把内部操作器暴露给主模型 |
-| `src/motor/` | 通用内部操作器、grounded handle 的当前空间解、动作反馈 DTO | 直接解释玩家话语；按对象类别选择动作；自行建立认知目标 |
+| `src/information/` | driver DTO、UI context、显示规则、字段注册表 | 输出界面没有展示的精度；绕过 Help/Read；把 raw 对象交给上层 |
+| `src/behavior/` | grounded embodied intent、合法 Information Read、对象可供性、Epistemic Map、身体状态 | 接收 raw protocol；用字符串匹配命令；把 controller/协议目录暴露给主模型 |
+| `src/motor/` | 有作用域的 controller request、grounded handle 的当前局部空间解、取消和反馈 DTO | 搜索新目标；读取完整世界替普通规划；把精确实现数据回流为认知事实 |
 | `src/navigation/` | Epistemic Map；仅单步调用 `SafetyProbe` | 读取 `bot.world`；批量/远程安全探测；用探测结果扩展路线 |
-| `src/actions/` | Behavior 生成的内部操作器计划与资源契约 | 导入原始客户端类型；作为主模型命令目录；通过 `findBlocks` 或 Pathfinder 绕过端口 |
-| `src/skills/` | 仅 v0.1 兼容适配器 | 注册新的对象专用 model-facing skill；无迁移 Issue 长期保留 |
+| `src/actions/` | Behavior 生成的内部计划引用与 controller 资源契约 | 导入原始客户端类型；作为主模型命令目录；通过 `findBlocks` 或 Pathfinder 绕过信息边界 |
+| `src/skills/` | 无合法职责；删除原型目录 | 注册或保留对象专用 model-facing skill |
 | `src/companion/`、`src/context/`、`src/models/`、`src/memory/`、`src/speech/` | Cognitive Observation、已验证领域事件和有来源记忆 | 接收 Protocol/Control 原始状态 |
 
-Mineflayer 适配实现集中在 `src/minecraft/driver/`。依赖方向通过 ESLint import restriction 和架构测试强制；为迁移保留的旧适配器必须有移除 Issue，不能形成第二个合法入口。
+Mineflayer 适配实现集中在 `src/minecraft/driver/`。依赖方向通过 ESLint import restriction 和架构测试强制；项目不为当前原型保留旧适配器或第二个合法入口。
 
-模型面对的是当前身体可供性、限制与证据要求，不是可调用 skill/operator 枚举。`look_at_player`、`look_at_block_face`、`track_player`、`follow_player` 等把对象类别编码进能力名的接口不得作为 v0.2 设计；现有实现只能处于明确有期限的兼容层。通用内部操作器可以硬编码身体效果与安全约束，但必须由 Grounding 后的 Behavior Synthesizer 选择。
+v0.2 先固定[合法信息接口、Help 发现与 UI 会话](../design/information-access-and-ui.md)。模型面对的是可发现的信息接口、当前合法读取、身体可供性、限制与证据要求，不是 raw Mineflayer 状态或协议事务枚举。
+
+控制层在 v0.3 重新设计。`lookAt`、`dig`、Pathfinder 等高层 API 可以在目标已合法选择、用途受限、可取消且结果独立验证的 controller 内被复用；不能因为 API 参数含坐标就一律禁止，也不能因为它方便就允许搜索隐藏目标。`look_at_player`、`follow_player`、`remove_object` 等名称是否包含过多目标选择或规划，需要按信息来源和职责逐项审查，而不是机械套用“只能键鼠输入”的规则。
 
 ### Safety Control 非泄漏契约
 

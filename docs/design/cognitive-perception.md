@@ -46,7 +46,7 @@
 5. 当前观察、最近观察、推断和记忆必须保留不同来源。
 6. 玩家行为观察可以产生假设，不能直接决定玩家意图或活动已放弃。
 7. Safety Control View 只能校验即将执行的单个局部动作；不能批量或远程探测、参与普通路线选择，结果也不能流入 Epistemic Map、语言、活动或记忆。
-8. 驱动或内部操作器通过 `findBlocks` 得到的坐标不是认知发现，也不能直接成为 grounded referent。
+8. 驱动或 v0.1 兼容代码通过 `findBlocks` 得到的坐标不是认知发现，也不能直接成为 grounded referent；Controller 只能解析已经由合法观察/Grounding 选中的对象。
 9. 维度切换、重连和世界切换立即清除当前可见状态。
 10. 感知调度不得阻塞 Threat Supervisor、协议处理或动作取消。
 
@@ -77,10 +77,10 @@ MineflayerBackend
 ### 4.1 代码约束
 
 - `Bot`、Prismarine `World`、raw entity、raw block 和 raw chunk 类型只能存在于 `src/minecraft/driver/`。
-- `src/perception/` 只读取 `ProtocolObservationSource` 和候选 DTO；`src/grounding/`、`src/behavior/`、`src/motor/`、`src/navigation/`、`src/actions/` 只使用版本化领域端口；`src/skills/` 仅保留 v0.1 兼容适配器。
+- `src/perception/` 只读取 `ProtocolObservationSource` 和候选 DTO；`src/grounding/`、`src/behavior/`、`src/motor/`、`src/navigation/`、`src/actions/` 只使用版本化领域端口；原型 `src/skills/` 直接删除。
 - `src/companion/`、`src/context/`、`src/models/`、`src/memory/`、`src/speech/` 只接收 Cognitive Observation、已验证事件和有来源记忆。
 - 跨边界只能使用本文 schema、领域事件、动作结果或已验证 MemoryRecord。
-- 通过 ESLint import restriction 和依赖图测试强制此边界；旧目录适配器必须关联迁移 Issue，不形成第二入口。
+- 通过 ESLint import restriction 和依赖图测试强制此边界；不建立旧目录适配器或第二入口。
 
 ### 4.2 信息权限矩阵
 
@@ -90,7 +90,7 @@ MineflayerBackend
 | 墙后碰撞 | 是 | 仅对下一局部动作返回最小安全结果 | 否 |
 | 未探索路线 | 是 | 禁止用于普通规划 | `unknown` |
 | `findBlocks` 全量命中 | 是 | 仅驱动内部候选；不可成为 grounded target | 否 |
-| 实体表精确坐标 | 是 | 威胁/动作可用 | 仅可见或最近估计 |
+| 实体表精确坐标 | 是 | 仅当前准星编码/局部安全校验 | 仅可见对象的相对位置或最近估计 |
 | 未打开容器内容 | 可能有缓存/历史 | 交互时 | 否 |
 | 当前视野可见表面 | 可计算 | 可用 | 是 |
 | 受伤与直接交互反馈 | 是 | 是 | 是 |
@@ -181,7 +181,7 @@ type VisibilityProofSummary = Pick<VisibilityProof,
   'result' | 'sampledPoints' | 'visiblePoints' | 'accumulatedAttenuation'>
 ```
 
-精确坐标只在 Perception、Grounding 后的内部行为计划、Motor 和调试边界内使用。普通模型上下文使用 `RelativePosition` 与 opaque context ref；模型不能接收可直接执行的 BlockPosition。
+精确坐标只在 driver 物理/协议编码、Perception 几何计算、由合法观察建立的 Epistemic Map 和已授权 Controller 的 scoped spatial resolution 内使用。Grounding 输出 opaque handle，普通模型上下文只使用合法 Information Read、`RelativePosition` 与 opaque context ref；Controller 可以为已选对象解析 `BlockPosition`，但不能搜索其他坐标或把实现值回流为认知事实。
 
 ## 6. 虚拟第一人称视口
 
@@ -369,7 +369,7 @@ interface BlockObservation {
 1. 视口射线扇：按固定角度网格采样第一可见表面。
 2. 关注区域：对准星、玩家指向或当前 gaze 目标提高采样密度。
 3. 事件候选：`blockUpdate`、挖掘、放置、门/容器交互产生位置候选，再做模态和可见性验证。
-4. 驱动候选：底层可用全量查询生成待检查候选，但只有重新通过 Perception Boundary 后才能成为观察，并经 Grounding 后才可能进入内部行为计划。
+4. 驱动候选：底层可用全量查询生成待检查候选，但只有重新通过 Perception Boundary 后才能成为观察，并经 Grounding 后才可供 Behavior 选目标；Controller 只解析该已选目标的局部实现坐标。
 
 ### 9.3 方块变化
 
@@ -598,7 +598,7 @@ interface PerceptionQuery {
 
 - Perception Query 只决定采样范围和时效，不解释玩家措辞、选择对象或改变身体。
 - `grounded_referent` 必须由本轮 Grounding 签发并仍然有效；它可以指向任何有证据的语义对象，接口不按玩家、方块或位置分型。
-- 若当前视口不覆盖 referent，Behavior Synthesizer 决定是否转头、转身、扫描、靠近或询问；Perception 不请求对象专用 gaze skill。
+- 若当前视口不覆盖 referent，Behavior Synthesizer 决定是否转头、转身、扫描、靠近或等待新观察；无法形成合法的信息获取计划时返回 `information_needed`，是否询问由 Companion 决策。Perception 不请求对象专用 gaze skill。
 - `while_intent_active` 是与具身意图生命周期绑定的有时限采样，不是 `watch_player`/`track_player` 特例；意图取消、过期或完成时立即停止。
 - query 仍受相同 FOV、遮挡、距离和 chunk 边界，不能成为透视 API。
 - 失败返回 blocked/out_of_range/unknown，让同伴自然询问或靠近。
@@ -692,21 +692,23 @@ interface CognitiveObservationSnapshot {
 - 删除已过期观察。
 - 当前 focused/nearby 与 `occluded_recently` 分组，禁止混写。
 - memory 内容进入 `retrieved_memories`，不进入 observations。
-- 精确坐标不注入主模型；仅在 grounded intent 的内部计划确有必要时使用。
+- 精确坐标不注入主模型；规划器可使用合法观察/Epistemic Map 的几何，Controller 可为已授权目标使用局部精确解，两者都不能把 raw tracked 坐标包装成新认知。
 - 每条保留 observation ID、modality、observedAt、validUntil、certainty。
 - 预算不足先丢低显著装饰，再丢重复普通实体；主要玩家、直接消息相关观察和威胁优先。
 - 声音只在未过期且与当前对话、活动、玩家、危险或显著变化相关时注入；音乐和普通 ambient 默认省略。
 
 普通无关 scene revision 不自动增加 Companion revision；触发决策的显著事件由 Attention Router 决定。
 
+认知观察作为 `viewport_information` 与 `sound_information` 接入统一 Catalog/Help/Read；字段发现、读取 envelope、UI 会话和其他客户端信息以[合法信息接口、Help 发现与 UI 会话](./information-access-and-ui.md)为准。本文继续定义观察如何从 raw 协议候选产生，不另建旁路快照。
+
 ## 18. 与动作和记忆的边界
 
 ### 18.1 动作
 
-- Action Runtime 只能为即将执行的内部操作器使用 Control View 做单步碰撞与安全预检，不能为行为合成提供隐藏路线。
+- Action Runtime 或 scoped controller 只能为已授权目标和当前控制阶段使用最小 Control View；可以进行实现所需的连续物理、碰撞与局部空间求解，但不能搜索新目标、为高层规划提供隐藏路线，或把精确实现数据回流成认知事实。
 - 动作结果只报告实际效果，不把内部路径搜索命中包装成发现。
 - gaze、靠近和交互可以创造新的感知机会，结果仍由 Perception Boundary 生成。
-- Threat Supervisor 可以因墙后协议实体采取防护，但同伴解释只能使用“我受到了威胁/需要躲避”等实际反馈，不能说出未感知目标细节。
+- Safety/Reflex 可以因跌落预测、碰撞、受伤或服务端更正释放输入，但不能依据墙后 raw entity 选择躲避方向。防护若需要目标方向，必须来自视觉、声音、伤害方向或其他正常反馈。
 
 ### 18.2 记忆
 
