@@ -52,7 +52,7 @@
 | World Fact | 地点、设施、容器或环境事实 | 是，可失效 | 观察、查询与世界验证 |
 | Social | 玩家明确偏好、称呼、关系理解 | 是 | 玩家陈述或带证据推断 |
 | Commitment | 双方约定及其状态 | 是，直到终止后归档 | 已发送语言、玩家陈述、活动事件 |
-| Procedural | 技能在具体条件下的成功与失败经验 | 是，聚合 | Action Runtime 结果 |
+| Procedural | 内部行为模式在具体条件下的成功与失败经验 | 是，聚合 | Action Runtime 结果 |
 | Raw Journal | 可审计领域事件和动作轨迹 | 是，另表 | Event Journal |
 
 工作状态和原始日志可以被检索流程引用，但不作为 `memory_records` 的伪造类型。
@@ -213,7 +213,7 @@ interface CommitmentPayload {
 
 interface ProceduralPayload {
   type: 'procedural'
-  skill: string
+  behaviorPatternId: string
   environmentSignature: string
   attempts: number
   successes: number
@@ -229,6 +229,8 @@ interface ReflectionPayload {
   counterexampleMemoryIds: string[]
 }
 ```
+
+`behaviorPatternId` 引用运行时内部、经验证的通用行为模式，不是主模型可调用的 skill 名，也不得按玩家、方块、树等对象类别拆分。程序经验只能影响可供性与行为合成的可靠性估计，不能绕过 Grounding 或动作验证。
 
 ### 7.1 历史与当前事实
 
@@ -335,7 +337,7 @@ CREATE TABLE memory_relations (
 
 - 相同规范化命题、作用域和有效时间的精确重复不新增记录，只添加证据并更新访问元数据。
 - episode 不因摘要相似就合并；共同事件区间高度重合时才视为同一经历。
-- procedural 按 skill 与 environment signature 聚合计数。
+- procedural 按 behavior pattern 与 environment signature 聚合计数。
 - social 推断的相似说法可归入同一 claim，但反例作为证据保留。
 - world fact 的新值不覆盖旧行，而是按时间和验证关系创建新记录。
 
@@ -387,7 +389,7 @@ pending_review → active | superseded | resolved | deleted
 - episode 中真实发生的语言和行动。
 - 玩家明确陈述和偏好。
 - 已观察世界事实。
-- 动作验证与技能统计。
+- 动作验证与内部行为统计。
 - 与当前自我风格无关的关系事实。
 
 重评可以恢复 active、创建替代反思或 resolved。新反思同时引用原始经历和当前 profile version，不能把旧档案下的行为描述成从未发生。
@@ -448,7 +450,7 @@ pending_review → active | superseded | resolved | deleted
 后台任务低优先级、可取消，不阻塞聊天和动作：
 
 1. 从已结束活动或重要事件窗口提出 episode。
-2. 将同一 skill/environment 的结果聚合为 procedural。
+2. 将同一 behavior pattern/environment 的结果聚合为 procedural。
 3. 从多条社会经历提出带反例的 relationship reflection。
 4. 压缩旧 episode 的展示摘要，但不删除原始记录或 evidence。
 5. 标记长期未验证的 current facts 为 stale 候选。
@@ -631,4 +633,3 @@ interface MemoryConsolidator {
 4. 档案编辑立即影响当前行为，但历史语言和行动保持原样。
 5. 检索结果可解释、世界隔离，并带来源、状态和证据。
 6. 删除、纠正、supersede、dispute 和 profile 重评均有自动测试。
-
