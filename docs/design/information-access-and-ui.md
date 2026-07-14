@@ -265,7 +265,20 @@ Minecraft 客户端同时存在三类相关但不能混写的界面状态：
 
 不能用单个 `isInUi: boolean` 表达三者。尤其是打开聊天输入时，世界仍是背景主表面，但移动键和文本已经归聊天；F3 和 Tab 通常只是 overlay，不是容器 screen。
 
+projection 内部以判别状态绑定值和可用性，不能把 availability 放在旁路 map：
+
 ```ts
+type UiFieldState<T> =
+  | {
+      availability: 'available'
+      value: Readonly<T>
+      acquisition:
+        | 'immediate_client_state'
+        | 'structured_ui_equivalent'
+        | 'current_screen'
+    }
+  | { availability: 'not_supported' | 'not_exposed' }
+
 interface UiContextV1 {
   protocol: 'mineintent.ui-context.v1'
   connectionEpoch: number
@@ -299,7 +312,7 @@ interface UiContextV1 {
         title?: string
         pausesWorld: boolean
       }
-  inputTarget:
+  inputTarget: UiFieldState<
     | { kind: 'world' }
     | {
         kind: 'screen'
@@ -308,22 +321,41 @@ interface UiContextV1 {
       }
     | { kind: 'chat'; mode: 'text' | 'command' }
     | { kind: 'none' }
+  >
   overlays: {
-    hudVisible: boolean
-    debugVisible: boolean
-    chatMode: 'hidden' | 'history' | 'input'
-    playerListVisible: boolean
-    subtitlesEnabled: boolean
-    bossBarsVisible: boolean
+    hudVisible: UiFieldState<boolean>
+    debugVisible: UiFieldState<boolean>
+    chatMode: UiFieldState<'hidden' | 'history' | 'input'>
+    playerListVisible: UiFieldState<boolean>
+    subtitlesEnabled: UiFieldState<boolean>
+    bossBarsVisible: UiFieldState<boolean>
   }
 }
+
+interface UiContextReadValues {
+  connection_state: UiContextV1['connectionState']
+  main_surface: UiContextV1['mainSurface']
+  input_target: Extract<UiContextV1['inputTarget'], { availability: 'available' }>['value']
+  hud_visible: boolean
+  debug_visible: boolean
+  chat_mode: 'hidden' | 'history' | 'input'
+  player_list_visible: boolean
+  subtitles_enabled: boolean
+  boss_bars_visible: boolean
+}
 ```
+
+`UiContextReadValues` 仍通过 `InformationReadResult.values: Partial<T>` 返回。Provider 仅把 available state 的 `.value` 写入对应字段；unavailable state 只进入 `unavailable[]`。overlay 必须拆为独立读取字段，不能为了返回一个完整对象而填入虚假的 `false/hidden`。
+
+无头 Mineflayer 的结构化 UI/input coordinator 只能在内部 field state 标记 `structured_ui_equivalent`，不能证明一个不存在的渲染客户端实际显示了 F3、Tab、背包或菜单；只有真实渲染来源才能在内部标记 `current_screen`。公共 v1 Read 的 acquisition 是 result-wide，无法表达混合来源，因此 `ui_context` 固定保守返回 `structured_ui_equivalent`，Help 对这些归一化字段统一使用 `precision: inferred`。公开逐字段 provenance 需要未来提升公共契约。
+
+内部 UI projection 与公开 Information projection 使用不同 revision：基础 acquisition 或 field acquisition 单独改变时，内部 `uiRevision` 必须提升并通知可信消费者；公开九字段的 value/availability 未变，因此 `informationRevision`、公开 `sourceRevision` 和 `observedAt` 必须保持。Provider 不能把内部 revision 直接复用为公开 revision。
 
 规则：
 
 - `ui_context` 只描述界面状态，不返回槽位、文字或控件内容；内容由对应信息接口读取。
-- `inputTarget` 必须引用当前 screen instance；不能只从 `mainSurface` 推断键鼠含义。
-- `inputTarget: world` 只允许与 `mainSurface: world` 同时出现；`inputTarget: screen` 的 instance 必须与主 screen 相同；`inputTarget: chat` 必须对应 `chatMode: input`；断线和过渡期使用 `none`。
+- 可用的 `inputTarget.value` 必须引用当前 screen instance；不能只从 `mainSurface` 推断键鼠含义，unavailable 也不能被解释为 `none`。
+- `inputTarget.value: world` 只允许与 `mainSurface: world` 同时出现；`inputTarget.value: screen` 的 instance 必须与主 screen 相同；`inputTarget.value: chat` 必须对应可用的 `chatMode.value: input`；断线和过渡期使用可用的 `none`。
 - screen 打开、关闭、替换、布局/控件集合变化或死亡/重生会提升 `screenRevision`；旧控件和槽位 selector 失效。普通槽位、文本或进度更新只提升对应 `informationRevision`，不让稳定 selector 每 tick 失效。
 - 多人游戏中的菜单通常不暂停世界，必须按真实 `pausesWorld` 表达。
 - F3、HUD 和 Tab 是 overlay，不应被错误当作容器 screen。
@@ -333,7 +365,7 @@ interface UiContextV1 {
 
 | 接口 | 主要信息 | 默认获取方式 |
 |---|---|---|
-| `ui_context` | 主表面、screen family/revision、输入归属、overlays | 始终可读 |
+| `ui_context` | 主表面、screen family/revision、输入归属、逐项 overlays | 接口始终存在；字段可 partial unavailable |
 | `current_status` | 生命、吸收、护甲、饥饿条、空气、经验、效果、姿势、骑乘 | HUD/自身可检查状态 |
 | `hotbar_information` | 9 个槽位、选择槽、主副手、可见数量/耐久条、冷却 | HUD |
 | `inventory_information` | 自身主物品栏、盔甲、副手、合成格、cursor stack | 结构化检查自身背包 |
