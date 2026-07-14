@@ -75,6 +75,13 @@ export class InformationToolSession {
       decisionRunId: this.context.decisionRunId,
     }
   }
+
+  operationSignal(upstream: AbortSignal): AbortSignal {
+    const remainingMs = Date.parse(this.context.budget.deadlineAt) - Date.now()
+    if (remainingMs <= 0) return AbortSignal.abort(new Error('Information tool session deadline elapsed'))
+    const boundedMs = Math.max(1, Math.min(Math.ceil(remainingMs), 2_147_483_647))
+    return AbortSignal.any([upstream, AbortSignal.timeout(boundedMs)])
+  }
 }
 
 export class InformationCatalogTool {
@@ -109,7 +116,11 @@ export class InformationTool {
         : 'help',
     )
     if (reservation) return reservation
-    const result = await this.runtime.query(session.caller(), input, signal)
+    const result = await this.runtime.query(
+      session.caller(),
+      input,
+      session.operationSignal(signal),
+    )
     return session.record(result) ?? result
   }
 }

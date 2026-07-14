@@ -5,6 +5,7 @@ import { InMemoryInformationAccessPolicy } from './access-policy.js'
 import type {
   InformationGrant,
   InformationInterfaceId,
+  InformationProvider,
   InformationProviderDefinition,
   InformationScopeSnapshot,
   InformationToolResult,
@@ -126,6 +127,21 @@ function setup(providers = [statusProvider()]) {
   const trace = new InMemoryInformationTrace()
   const runtime = new InformationRuntime({ registry, accessPolicy: policy, scopeSource: scope, trace })
   return { runtime, registry, policy, scope, trace }
+}
+
+function setupSingle<Values extends object, Selector, PageState>(
+  provider: InformationProvider<Values, Selector, PageState>,
+) {
+  const registry = new InformationRegistry()
+  registry.register(provider)
+  registry.seal('1.21.1')
+  const policy = new InMemoryInformationAccessPolicy()
+  policy.put(companionGrant)
+  return new InformationRuntime({
+    registry,
+    accessPolicy: policy,
+    scopeSource: new MutableInformationScopeSource(initialScope),
+  })
 }
 
 test('runtime filters catalog by audience and serves Catalog → Help → Read', async () => {
@@ -297,6 +313,76 @@ test('runtime discards provider leaks and reads racing a scope change', async ()
   assert.equal('code' in raced ? raced.code : undefined, 'scope_changed')
 })
 
+test('runtime rebuilds nested fields from parsed Zod data and enforces declared sources', async () => {
+  interface NestedValues { health: { current: number } }
+  const definition = {
+    id: 'current_status',
+    description: 'Nested visible status',
+    schemaRevision: 'nested:1',
+    audiences: ['companion'],
+    scopeDependencies: ['connection'],
+    fields: {
+      health: {
+        description: 'Visible health object',
+        valueSchema: z.object({ current: z.number() }),
+        valueType: 'object',
+        precision: 'displayed',
+        sourceKinds: ['hud_projection'],
+      },
+    },
+    limits: { maxFieldsPerRead: 1, maxResultBytes: 4_096, timeoutMs: 100 },
+  } satisfies InformationProviderDefinition<NestedValues>
+  const nested = new FakeInformationProvider<NestedValues>({
+    definition,
+    availability: () => ({ overall: 'available', informationRevision: 1, fields: {} }),
+    read: async () => ({
+      informationRevision: 1,
+      values: { health: { current: 18, hiddenSaturation: 4.2 } },
+      unavailable: [],
+      source: {
+        kind: 'hud_projection',
+        adapterRevision: 'nested:1',
+        sourceRevision: 1,
+        acquisition: 'immediate_client_state',
+      },
+      observedAt: initialScope.capturedAt,
+      evidenceIds: [],
+    }),
+  })
+  const cleaned = await setupSingle(nested).query(caller, {
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'nested:1',
+    fields: ['health'],
+  }, new AbortController().signal)
+  assert.deepEqual('values' in cleaned ? cleaned.values : {}, { health: { current: 18 } })
+
+  const wrongSource = new FakeInformationProvider<NestedValues>({
+    definition,
+    availability: () => ({ overall: 'available', informationRevision: 1, fields: {} }),
+    read: async () => ({
+      informationRevision: 1,
+      values: { health: { current: 18 } },
+      unavailable: [],
+      source: {
+        kind: 'operator_diagnostic',
+        adapterRevision: 'nested:1',
+        sourceRevision: 1,
+        acquisition: 'operator_only',
+      },
+      observedAt: initialScope.capturedAt,
+      evidenceIds: [],
+    }),
+  })
+  const rejected = await setupSingle(wrongSource).query(caller, {
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'nested:1',
+    fields: ['health'],
+  }, new AbortController().signal)
+  assert.equal('code' in rejected ? rejected.code : undefined, 'provider_failed')
+})
+
 test('runtime aborts the provider when its deadline elapses', async () => {
   let aborted = false
   const definition = {
@@ -393,4 +479,46 @@ test('tool sessions enforce read-call and byte budgets before returning results'
   })
   const byteRejected = await tool.invoke(request, byteLimited, new AbortController().signal)
   assert.equal('code' in byteRejected ? byteRejected.code : undefined, 'budget_exceeded')
+})
+
+test('tool session deadline aborts a read already in progress', async () => {
+  let aborted = false
+  const port: InformationRuntimePort = {
+    catalog: () => ({
+      protocol: 'mineintent.information-catalog.v1',
+      status: 'not_modified',
+      catalogRevision: 'catalog:1',
+    }),
+    query: async (_caller, _request, signal) => new Promise((resolve) => {
+      signal.addEventListener('abort', () => {
+        aborted = true
+        resolve({
+          protocol: 'mineintent.information-error.v1',
+          code: 'deadline_exceeded',
+          message: 'deadline',
+        })
+      }, { once: true })
+    }),
+  }
+  const session = new InformationToolSession({
+    sessionId: 'session-deadline',
+    decisionRunId: 'run-deadline',
+    correlationId: 'correlation-deadline',
+    principalId: 'companion-model',
+    grantId: 'grant-companion',
+    budget: {
+      maxCalls: 1,
+      maxReadCalls: 1,
+      maxReturnedBytes: 1_024,
+      deadlineAt: new Date(Date.now() + 20).toISOString(),
+    },
+  })
+  const result = await new InformationTool(port).invoke({
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'current_status:1',
+    fields: ['health'],
+  }, session, new AbortController().signal)
+  assert.equal('code' in result ? result.code : undefined, 'deadline_exceeded')
+  assert.equal(aborted, true)
 })

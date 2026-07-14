@@ -300,8 +300,8 @@ export class InformationRuntime {
         : 'The information provider failed.', request.interfaceId)
     }
 
-    const validationError = validateProviderResult(provider, fields, internal)
-    if (validationError) return error('provider_failed', validationError, request.interfaceId)
+    const validation = validateProviderResult(provider, fields, internal)
+    if (!validation.ok) return error('provider_failed', validation.message, request.interfaceId)
     if (pagination.expectedInformationRevision !== undefined &&
         pagination.expectedInformationRevision !== internal.informationRevision) {
       return error('invalid_page', 'The paged information changed.', request.interfaceId)
@@ -309,6 +309,10 @@ export class InformationRuntime {
     const scopeAfter = this.#scopeSource.capture()
     if (scopeChanged(scopeBefore, scopeAfter, provider.definition.scopeDependencies)) {
       return error('scope_changed', 'The information scope changed during the read.', request.interfaceId)
+    }
+    if (request.selector &&
+        !this.#selectorSourceIsCurrent(caller, grant, request.selector, scopeAfter)) {
+      return error('invalid_selector', 'The selector source changed during the read.', request.interfaceId)
     }
 
     const readId = `read_${randomUUID()}`
@@ -347,7 +351,7 @@ export class InformationRuntime {
         sourceRevision: internal.source.sourceRevision,
         acquisition: internal.source.acquisition,
       },
-      values: cloneJson(internal.values),
+      values: validation.values,
       unavailable: internal.unavailable.map(({ field, reason }) => ({ field, reason })),
       evidenceIds: [...internal.evidenceIds],
       ...(nextCursor ? { nextCursor } : {}),
@@ -392,9 +396,38 @@ export class InformationRuntime {
       scope,
       acceptedKinds: selectorDefinition?.acceptsKinds,
     })
-    return payload === undefined
-      ? { error: error('invalid_selector', 'The information selector is invalid or stale.', interfaceId) }
-      : { payload }
+    if (payload === undefined) {
+      return { error: error('invalid_selector', 'The information selector is invalid or stale.', interfaceId) }
+    }
+    if (!this.#selectorSourceIsCurrent(caller, grant, ref, scope)) {
+      return { error: error('invalid_selector', 'The selector source is no longer available.', interfaceId) }
+    }
+    return { payload }
+  }
+
+  #selectorSourceIsCurrent(
+    caller: TrustedInformationCaller,
+    grant: InformationGrant,
+    ref: InformationSelectorRef,
+    scope: InformationScopeSnapshot,
+  ): boolean {
+    const sourceProvider = this.#registry.provider(ref.interfaceId)
+    const sourceDescriptor = this.#registry.descriptors().find(({ id }) => id === ref.interfaceId)
+    if (!sourceProvider || !sourceDescriptor ||
+        !this.#accessPolicy.authorize(grant, sourceDescriptor, 'help', [], scope).allowed) return false
+    try {
+      const availability = sourceProvider.availability(this.#providerContext(
+        ref.interfaceId,
+        caller,
+        grant,
+        scope,
+      ))
+      validateAvailability(sourceProvider, availability)
+      return availability.overall !== 'unavailable' &&
+        availability.informationRevision === ref.basedOnInformationRevision
+    } catch {
+      return false
+    }
   }
 
   #resolvePage(
@@ -498,32 +531,40 @@ function validateProviderResult(
   provider: RegisteredInformationProvider,
   requestedFields: readonly string[],
   result: ProviderReadResult<Record<string, unknown>, unknown>,
-): string | undefined {
+):
+  | { ok: true; values: Record<string, unknown> }
+  | { ok: false; message: string } {
   if (!Number.isInteger(result.informationRevision) || result.informationRevision < 0) {
-    return 'The information provider returned an invalid revision.'
+    return { ok: false, message: 'The information provider returned an invalid revision.' }
   }
   const returnedFields = Object.keys(result.values)
   if (returnedFields.some((field) => !requestedFields.includes(field))) {
-    return 'The information provider returned unrequested fields.'
+    return { ok: false, message: 'The information provider returned unrequested fields.' }
   }
+  const parsedValues: Record<string, unknown> = {}
   for (const field of returnedFields) {
-    const schema = provider.definition.fields[field]?.valueSchema
-    if (!schema || !schema.safeParse(result.values[field]).success) {
-      return 'The information provider returned an invalid field value.'
+    const definition = provider.definition.fields[field]
+    const parsed = definition?.valueSchema.safeParse(result.values[field])
+    if (!definition || !parsed?.success) {
+      return { ok: false, message: 'The information provider returned an invalid field value.' }
     }
+    if (!definition.sourceKinds.includes(result.source.kind)) {
+      return { ok: false, message: 'The information provider returned a disallowed field source.' }
+    }
+    parsedValues[field] = parsed.data
   }
   const unavailableFields = new Set<string>()
   for (const unavailable of result.unavailable) {
     if (!requestedFields.includes(unavailable.field) || unavailableFields.has(unavailable.field)) {
-      return 'The information provider returned invalid unavailable fields.'
+      return { ok: false, message: 'The information provider returned invalid unavailable fields.' }
     }
     unavailableFields.add(unavailable.field)
   }
   if (returnedFields.some((field) => unavailableFields.has(field))) {
-    return 'The information provider returned a field as both available and unavailable.'
+    return { ok: false, message: 'The information provider returned a field as both available and unavailable.' }
   }
   if (requestedFields.some((field) => !returnedFields.includes(field) && !unavailableFields.has(field))) {
-    return 'The information provider omitted a requested field without explanation.'
+    return { ok: false, message: 'The information provider omitted a requested field without explanation.' }
   }
   if (!Number.isInteger(result.source.sourceRevision) || result.source.sourceRevision < 0 ||
       !result.source.adapterRevision ||
@@ -537,7 +578,7 @@ function validateProviderResult(
       ].includes(result.source.acquisition) ||
       Number.isNaN(Date.parse(result.observedAt)) ||
       (result.validUntil !== undefined && Number.isNaN(Date.parse(result.validUntil)))) {
-    return 'The information provider returned invalid source metadata.'
+    return { ok: false, message: 'The information provider returned invalid source metadata.' }
   }
   const allowedUnavailable = new Set<string>([
     ...INFORMATION_AVAILABILITIES.filter((value) => value !== 'available'),
@@ -547,14 +588,17 @@ function validateProviderResult(
   ])
   if (result.unavailable.some(({ reason }) => !allowedUnavailable.has(reason)) ||
       result.evidenceIds.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 256)) {
-    return 'The information provider returned invalid evidence metadata.'
+    return { ok: false, message: 'The information provider returned invalid evidence metadata.' }
   }
   try {
-    cloneJson(result.values)
+    const values = cloneJson(parsedValues)
+    if (Object.keys(values).length !== returnedFields.length) {
+      return { ok: false, message: 'The information provider returned a non-JSON field value.' }
+    }
+    return { ok: true, values }
   } catch {
-    return 'The information provider returned a non-JSON value.'
+    return { ok: false, message: 'The information provider returned a non-JSON field value.' }
   }
-  return undefined
 }
 
 function visibleCatalogRevision(

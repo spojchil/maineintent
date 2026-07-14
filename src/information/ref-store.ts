@@ -23,19 +23,41 @@ interface StoredReference {
 
 export interface InformationRefStoreOptions {
   maxEntries?: number
+  maxEntriesPerPrincipal?: number
+  maxEntriesPerInterface?: number
+  maxPayloadBytes?: number
+  maxIssuesPerIssuer?: number
+  ttlMs?: number
   now?: () => Date
 }
 
 export class InformationRefStore {
   readonly #entries = new Map<string, StoredReference>()
   readonly #maxEntries: number
+  readonly #maxEntriesPerPrincipal: number
+  readonly #maxEntriesPerInterface: number
+  readonly #maxPayloadBytes: number
+  readonly #maxIssuesPerIssuer: number
+  readonly #ttlMs: number
   readonly #now: () => Date
 
   constructor(options: InformationRefStoreOptions = {}) {
     this.#maxEntries = options.maxEntries ?? 2_048
+    this.#maxEntriesPerPrincipal = options.maxEntriesPerPrincipal ?? 512
+    this.#maxEntriesPerInterface = options.maxEntriesPerInterface ?? 256
+    this.#maxPayloadBytes = options.maxPayloadBytes ?? 8_192
+    this.#maxIssuesPerIssuer = options.maxIssuesPerIssuer ?? 32
+    this.#ttlMs = options.ttlMs ?? 60_000
     this.#now = options.now ?? (() => new Date())
-    if (!Number.isInteger(this.#maxEntries) || this.#maxEntries < 1) {
-      throw new Error('Information reference capacity must be positive')
+    if ([
+      this.#maxEntries,
+      this.#maxEntriesPerPrincipal,
+      this.#maxEntriesPerInterface,
+      this.#maxPayloadBytes,
+      this.#maxIssuesPerIssuer,
+      this.#ttlMs,
+    ].some((value) => !Number.isInteger(value) || value < 1)) {
+      throw new Error('Information reference limits must be positive integers')
     }
   }
 
@@ -45,9 +67,15 @@ export class InformationRefStore {
     grant: InformationGrant
     scope: InformationScopeSnapshot
   }): InformationReferenceIssuer {
+    let issued = 0
     return {
-      issue: <Payload>(request: InformationReferenceIssueRequest<Payload>) =>
-        this.#issue(input, request),
+      issue: <Payload>(request: InformationReferenceIssueRequest<Payload>) => {
+        issued += 1
+        if (issued > this.#maxIssuesPerIssuer) {
+          throw new Error('Information reference per-read issue limit exceeded')
+        }
+        return this.#issue(input, request)
+      },
     }
   }
 
@@ -76,7 +104,7 @@ export class InformationRefStore {
         (stored.ref.screenInstanceId !== input.scope.screenInstanceId ||
          stored.screenRevision !== input.scope.screenRevision)) return undefined
     if (input.acceptedKinds && !input.acceptedKinds.includes(stored.kind)) return undefined
-    return stored.payload as Payload
+    return cloneBoundedJson(stored.payload, this.#maxPayloadBytes, 'reference payload') as Payload
   }
 
   invalidate(event: InformationInvalidationEvent): void {
@@ -116,12 +144,23 @@ export class InformationRefStore {
         (request.validUntil !== undefined && Number.isNaN(Date.parse(request.validUntil)))) {
       throw new Error('Information reference metadata is invalid')
     }
-    this.#evictExpired()
-    while (this.#entries.size >= this.#maxEntries) {
-      const oldest = this.#entries.keys().next().value as string | undefined
-      if (!oldest) break
-      this.#entries.delete(oldest)
+    if (request.bindToScreen &&
+        (!input.scope.screenInstanceId || input.scope.screenRevision === undefined)) {
+      throw new Error('Screen-bound information reference requires an active screen revision')
     }
+    this.#evictExpired()
+    if (this.#entries.size >= this.#maxEntries ||
+        this.#count((stored) => stored.principalId === input.principalId) >= this.#maxEntriesPerPrincipal ||
+        this.#count((stored) => stored.ref.interfaceId === input.interfaceId) >= this.#maxEntriesPerInterface) {
+      throw new Error('Information reference capacity exceeded')
+    }
+    const payload = cloneBoundedJson(request.payload, this.#maxPayloadBytes, 'reference payload')
+    const now = this.#now()
+    const maximumValidUntil = now.getTime() + this.#ttlMs
+    if (request.validUntil !== undefined && Date.parse(request.validUntil) > maximumValidUntil) {
+      throw new Error('Information reference lifetime exceeds its limit')
+    }
+    const validUntil = request.validUntil ?? new Date(maximumValidUntil).toISOString()
     const ref: InformationSelectorRef = Object.freeze({
       protocol: 'mineintent.information-selector-ref.v1',
       id: `iref_${randomUUID()}`,
@@ -132,12 +171,12 @@ export class InformationRefStore {
         ? { screenInstanceId: input.scope.screenInstanceId }
         : {}),
       basedOnInformationRevision: request.basedOnInformationRevision,
-      ...(request.validUntil ? { validUntil: request.validUntil } : {}),
+      validUntil,
     })
     this.#entries.set(ref.id, {
       ref,
       kind: request.kind,
-      payload: structuredClone(request.payload),
+      payload,
       principalId: input.principalId,
       grantId: input.grant.id,
       audience: input.grant.audience,
@@ -152,6 +191,14 @@ export class InformationRefStore {
     for (const [id, stored] of this.#entries) {
       if (isExpired(stored.ref.validUntil, this.#now())) this.#entries.delete(id)
     }
+  }
+
+  #count(predicate: (stored: StoredReference) => boolean): number {
+    let count = 0
+    for (const stored of this.#entries.values()) {
+      if (predicate(stored)) count += 1
+    }
+    return count
   }
 }
 
@@ -168,4 +215,17 @@ function sameRef(left: InformationSelectorRef, right: InformationSelectorRef): b
     left.screenInstanceId === right.screenInstanceId &&
     left.basedOnInformationRevision === right.basedOnInformationRevision &&
     left.validUntil === right.validUntil
+}
+
+function cloneBoundedJson<T>(value: T, maxBytes: number, label: string): T {
+  let serialized: string | undefined
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw new Error(`Information ${label} must be JSON serializable`)
+  }
+  if (serialized === undefined || Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    throw new Error(`Information ${label} exceeds its byte limit`)
+  }
+  return JSON.parse(serialized) as T
 }

@@ -53,6 +53,8 @@ function runtimeWith(...providers: Array<FakeInformationProvider<object, unknown
 }
 
 test('runtime signs provider references and resolves them only for declared target providers', async () => {
+  let inventoryRevision = 2
+  let changeSourceDuringTooltipRead = false
   interface InventoryValues { item_refs: InformationSelectorRef[] }
   const inventoryDefinition = {
     id: 'inventory_information',
@@ -73,7 +75,7 @@ test('runtime signs provider references and resolves them only for declared targ
   } satisfies InformationProviderDefinition<InventoryValues>
   const inventory = new FakeInformationProvider<InventoryValues>({
     definition: inventoryDefinition,
-    availability: () => ({ overall: 'available', informationRevision: 2, fields: {} }),
+    availability: () => ({ overall: 'available', informationRevision: inventoryRevision, fields: {} }),
     read: async (context) => ({
       informationRevision: 2,
       values: {
@@ -118,19 +120,22 @@ test('runtime signs provider references and resolves them only for declared targ
   const tooltip = new FakeInformationProvider<TooltipValues, { slot: number }>({
     definition: tooltipDefinition,
     availability: () => ({ overall: 'available', informationRevision: 1, fields: {} }),
-    read: async (_context, request) => ({
-      informationRevision: 1,
-      values: { display_name: request.selector?.slot === 2 ? 'Oak Log' : 'unexpected' },
-      unavailable: [],
-      source: {
-        kind: 'screen_projection',
-        adapterRevision: 'fake-tooltip:1',
-        sourceRevision: 1,
-        acquisition: 'structured_ui_equivalent',
-      },
-      observedAt: scope.capturedAt,
-      evidenceIds: [],
-    }),
+    read: async (_context, request) => {
+      if (changeSourceDuringTooltipRead) inventoryRevision += 1
+      return {
+        informationRevision: 1,
+        values: { display_name: request.selector?.slot === 2 ? 'Oak Log' : 'unexpected' },
+        unavailable: [],
+        source: {
+          kind: 'screen_projection',
+          adapterRevision: 'fake-tooltip:1',
+          sourceRevision: 1,
+          acquisition: 'structured_ui_equivalent',
+        },
+        observedAt: scope.capturedAt,
+        evidenceIds: [],
+      }
+    },
   })
 
   const runtime = runtimeWith(
@@ -157,6 +162,16 @@ test('runtime signs provider references and resolves them only for declared targ
     selector: ref,
   }, new AbortController().signal)
   assert.deepEqual('values' in tooltipRead ? tooltipRead.values : {}, { display_name: 'Oak Log' })
+
+  changeSourceDuringTooltipRead = true
+  const stale = await runtime.query(caller, {
+    interfaceId: 'item_tooltip_information',
+    operation: 'read',
+    schemaRevision: 'tooltip:1',
+    fields: ['display_name'],
+    selector: ref,
+  }, new AbortController().signal)
+  assert.equal('code' in stale ? stale.code : undefined, 'invalid_selector')
 
   const wrongTarget = await runtime.query(caller, {
     interfaceId: 'inventory_information',
