@@ -146,7 +146,7 @@ interface InformationToolSessionContext {
 }
 ```
 
-每轮模型调用拥有一个有界 Tool Session。Catalog/Help 可以缓存，但仍计入总调用数；Read 受独立次数和字节预算限制。模型不能通过反复分页导出完整历史或绕过 Context 预算。
+每轮模型调用拥有一个有界 Tool Session。Catalog/Help 可以缓存，但仍计入总调用数；Read 受独立次数和字节预算限制。模型不能通过反复分页导出完整历史或绕过 Context 预算。Session 将自己的剩余 deadline 与调用方 `AbortSignal` 合并后传给 Runtime；deadline 不只是调用前检查，已经进入 Provider 的 Read 也必须被取消并返回 `deadline_exceeded`。
 
 ## 5. Runtime 公共接口
 
@@ -154,6 +154,7 @@ interface InformationToolSessionContext {
 interface TrustedInformationCaller {
   principalId: string
   grantId: string
+  purpose: InformationGrant['purpose']
   correlationId: string
   decisionRunId?: string
   controllerLeaseId?: string
@@ -179,7 +180,7 @@ interface InformationRuntimeDiagnostics {
 }
 ```
 
-`TrustedInformationCaller` 只能由 Context Composer、Model Gateway、Controller Runtime 或 Operator API 构造。自然语言、模型 JSON 和 Minecraft 聊天都不能生成 caller 或 grant。Diagnostics 是单独的 privileged composition port，不从模型、Context 或 Controller 可达。
+`TrustedInformationCaller` 只能由 Context Composer、Model Gateway、Controller Runtime 或 Operator API 构造。Runtime 要求 caller purpose 与 grant purpose 精确相同，因此 operator grant 不能放进 Model Tool Session。自然语言、模型 JSON 和 Minecraft 聊天都不能生成 caller 或 grant。Diagnostics 是单独的 privileged composition port，不从模型、Context 或 Controller 可达。
 
 ## 6. Access Policy 与 grant
 
@@ -225,13 +226,22 @@ import type { ZodType } from 'zod'
 
 type FieldId<Values extends object> = Extract<keyof Values, string>
 
+type InformationScopeDependency =
+  | 'connection'
+  | 'world'
+  | 'dimension'
+  | 'ui'
+  | 'screen'
+
 interface InformationFieldDefinition<Value> {
   description: string
   valueSchema: ZodType<Value>
+  valueType: string
   unit?: string
   precision: 'displayed' | 'quantized' | 'exactly_displayed' | 'inferred'
   sourceKinds: readonly InformationSourceKind[]
   requires?: readonly string[]
+  notes?: string
 }
 
 interface InformationProviderDefinition<Values extends object> {
@@ -239,6 +249,7 @@ interface InformationProviderDefinition<Values extends object> {
   description: string
   schemaRevision: string
   audiences: readonly InformationAudience[]
+  scopeDependencies: readonly InformationScopeDependency[]
   fields: {
     readonly [Field in FieldId<Values>]: InformationFieldDefinition<Values[Field]>
   }
@@ -282,7 +293,11 @@ interface ProviderReadResult<Values extends object, PageState> {
   values: Partial<Values>
   unavailable: Array<{
     field: FieldId<Values>
-    reason: Exclude<InformationAvailability, 'available'>
+    reason:
+      | Exclude<InformationAvailability, 'available'>
+      | 'stale_selector'
+      | 'wrong_world'
+      | 'wrong_screen'
   }>
   source: {
     kind: InformationSourceKind
@@ -326,7 +341,8 @@ Provider 返回内部结果，不构造 `InformationReadResult`、`InformationRe
 ### 7.3 Provider 不变量
 
 - 只返回请求字段；返回额外字段是程序缺陷。
-- 每个值通过对应 Zod schema；校验失败时整次 Read 返回 sanitized `provider_failed`。
+- 每个值通过对应 Zod schema；Runtime 必须使用 Zod 解析后的 `data` 重建外部结果，不能在校验成功后继续返回 Provider 原始对象。这样嵌套对象中的未知属性也不会越过 schema。
+- 每个实际返回字段的 `source.kind` 必须属于该字段声明的 `sourceKinds`；不匹配时整次 Read 返回 sanitized `provider_failed`。
 - `informationRevision` 来自 Provider 对外投影；只有可见值或 availability 变化时递增，不能直接复用 raw source revision。
 - 不读取网络、文件、模型或测试服务器；Read 只消费内存投影或有界同步 source snapshot。
 - 不导入 Mineflayer `Bot`、Paper oracle、Context Composer、Model Provider 或其他 Information Provider。
@@ -366,7 +382,7 @@ interface InformationRegistry {
 
 - 所有 Provider 在 App composition 阶段注册，`seal()` 后不可变。
 - 重复 interface ID、同一 Provider 内重复 field ID、空字段集、错误 schema 或无 audience 使启动失败；不同接口可以拥有同名字段。
-- `catalogRevision` 由锁定 Minecraft 版本和排序后的 Provider 描述符计算；当前 availability 不改变 catalog revision。
+- Registry base revision 由锁定 Minecraft 版本和排序后的 Provider 描述符计算；返回给 caller 的 effective `catalogRevision` 还哈希其当前 grant 可见的接口、schema 与字段集合。权限收窄会迫使模型刷新 Catalog/Help，当前 availability 仍不改变 revision。
 - v0.2 不支持运行时插件热装载。
 
 ## 9. Scope 与 revision 所有权
@@ -391,7 +407,7 @@ interface InformationScopeSource {
 
 | Revision | 所有者 | 何时变化 | 不应因何变化 |
 |---|---|---|---|
-| `catalogRevision` | Registry | Provider、字段描述符、audience 或目标版本变化 | 当前游戏值变化 |
+| `catalogRevision` | Registry + Access Policy | Provider、字段描述符、audience、目标版本或 caller 可见字段变化 | 当前游戏值变化 |
 | `schemaRevision` | 单个 Provider | 字段名、类型、单位、精度或语义变化 | availability 和当前值变化 |
 | `informationRevision` | Provider 对外投影 | 对外可见值或 availability 变化 | raw 状态中被过滤掉的隐藏变化 |
 | `connectionEpoch` | Backend lifecycle | 每次新连接尝试进入有效会话 | 重生或普通 screen 变化 |
@@ -429,13 +445,15 @@ interface InformationRefStore {
 }
 ```
 
-- ID 使用不可预测随机值，raw payload 只保存在进程内 map。
+- ID 使用不可预测随机值；payload/page state 只保存在进程内 map，且必须是可复制、有字节上限的 JSON DTO，不能保存 raw Minecraft 对象。
 - Ref 绑定 principal、audience、epoch、world，并可选绑定 screen instance/revision。
+- `bindToScreen` 只有在当前同时存在 screen instance 与 screen revision 时才允许签发，否则拒绝；不能生成名义上绑定、实际上缺少 screen scope 的 ref。
 - Provider 可签发 item、screen element、observation 等 ref；目标 Provider 必须在 `allowedInterfaces` 中。
+- Runtime 在目标 Read 前后都重新读取签发源 Provider 的 availability；其当前 `informationRevision` 必须等于 ref 的 `basedOnInformationRevision`。读取期间源投影变化时丢弃目标结果，不能让旧物品或旧观察 ref 命中新状态。
 - 日志只记录 ref ID、kind、scope 和失效原因，不记录 payload。
-- disconnect、world/dimension change、screen replacement、TTL、容量淘汰或 grant 结束会失效。
+- disconnect、world/dimension change、screen replacement、默认 TTL 或 grant 结束会失效。
 - Cursor 使用同一原则，额外绑定 interface、字段集合、selector、information revision、limit 和 page state。
-- Store 有每 principal、每 interface 和全局容量上限；淘汰后返回 `stale_selector` 或 `invalid_page`。
+- Store 有 payload/page-state 字节上限、每次 Read 的 ref 签发上限，以及每 principal、每 interface 和全局容量上限。清理过期项后仍超限时拒绝新增，不跨主体或接口淘汰尚有效的引用。
 
 ## 11. 一次 Query 的完整流程
 
@@ -445,7 +463,8 @@ Tool Adapter 收到 interfaceId + help/read
 → AccessPolicy 解析 grant；失败返回 audience_denied
 → Registry 查 Provider；失败返回 unknown_interface
 → 捕获 scopeBefore
-→ 校验 audience、interface、schema、字段、selector/cursor、limit 与 session budget
+→ 严格解析 envelope；额外/重复/畸形字段返回 invalid_request
+→ 校验 caller/grant purpose、audience、interface、schema、字段、selector/cursor、limit 与 session budget
 → help: 合并静态 field definition 与 Provider.current availability
 → read: 解析 opaque ref/page state，调用 Provider
 → 校验 Provider 只返回请求字段且所有值通过 schema
@@ -834,10 +853,11 @@ Tool result 是模型事实输入，不是私有思维链。每个 Read 的 `rea
 
 | 情况 | 外部结果 | 内部处理 |
 |---|---|---|
+| envelope/重复字段不合法 | `invalid_request` | 拒绝，不猜测修复 |
 | 字段当前不可见 | partial `unavailable` | 正常统计 |
 | 未知字段 | `unknown_field` | 提示重新 Help |
 | schema 变化 | `stale_schema` | 返回当前 revision |
-| selector 已失效 | `invalid_selector` 或字段 `stale_selector` | 删除 ref |
+| selector 已失效或签发源 revision 已改变 | `invalid_selector` 或字段 `stale_selector` | 删除/拒绝 ref，丢弃读取中的结果 |
 | scope 在读取中变化 | `scope_changed` | 丢弃 Provider 结果 |
 | Tool Session 超额 | `budget_exceeded` | 停止本轮额外 Read |
 | Abort/deadline | `deadline_exceeded` | 取消 Provider |
@@ -853,7 +873,7 @@ Runtime 调试状态至少包含：
 - catalog revision、已注册 Provider 和 schema revision；
 - 每接口 Help/Read 次数、耗时、结果字节数和 unavailable 分布；
 - audience 拒绝、未知字段、陈旧 schema、无效 ref/cursor 和 scope race 数量；
-- Ref/Cursor store 当前数量、淘汰和失效原因；
+- Ref/Cursor store 当前数量、容量拒绝和失效原因；
 - 每个 Provider 当前 information/source revision；
 - Tool Session 预算使用；
 - `readId → interface/fields/source/evidence/correlation` trace，不记录默认值 payload。
@@ -865,7 +885,8 @@ Runtime 调试状态至少包含：
 ### 18.1 所有 Provider 必跑的契约套件
 
 - Definition 字段与 Help 完全一致。
-- 只返回请求字段，值通过字段 Zod schema。
+- 只返回请求字段；外部值由字段 Zod 解析结果重建，嵌套未知属性不能残留。
+- 每个返回字段的 source kind 都在字段声明的 `sourceKinds` 内。
 - 当前不可用返回 partial，不抛异常、不用隐藏值补齐。
 - audience、field allowlist 和 grant scope 生效。
 - 断线、world/dimension/screen 变化使相关 ref/cursor 失效。
@@ -878,10 +899,12 @@ Runtime 调试状态至少包含：
 - 注册顺序不影响 catalog revision。
 - 重复 Provider/字段和未密封 Registry 拒绝启动。
 - 相同 schema revision 可缓存；改变后返回 `stale_schema`。
-- Ref 不能跨 principal、audience、epoch、world、screen 或接口使用。
+- Ref 不能跨 principal、audience、epoch、world、screen 或接口使用；要求 screen binding 时必须存在具体 screen instance/revision。
+- Ref 在目标读取前后都必须匹配签发源当前 information revision。
 - Cursor 不能修改 fields/limit/selector 后续页。
+- Ref/Cursor 的 payload、page state、每次签发数以及 principal/interface/global 容量均有硬上限，超限不能淘汰其他作用域的有效项。
 - scope before/after 不同会丢弃结果。
-- Tool Session 达到调用/字节预算后确定性拒绝。
+- Tool Session 达到调用/字节预算后确定性拒绝，session deadline 能中断已经开始的 Provider Read。
 - privileged diagnostics 不进入 Companion Catalog、Read、Context 或 Journal payload。
 
 ### 18.3 第一条纵向验收
@@ -953,7 +976,7 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 
 | 阶段 | Issue | 交付 |
 |---|---|---|
-| P0 | #53 | 本设计、contracts、Registry、Runtime、AccessPolicy、Ref/Cursor Store、fake provider、契约测试 |
+| P0 | #53 | 本设计、contracts、Registry、Runtime、AccessPolicy、Ref/Cursor Store、Fake Provider、契约测试；不实现真实游戏字段 |
 | P1 | #54 | Session/UI projection、UiContextProvider |
 | P1 | #55 | CurrentStatusProvider 第一条纵向链，再实现 hotbar/inventory/F3 |
 | P2 | #56 | HUD/chat/Tab/current screen/advancement/recipe providers |
@@ -965,14 +988,14 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 
 ## 21. 删除旧路径的切换门
 
-第一条 `current_status` 纵向链通过后，直接执行以下替换：
+第一条 `current_status` 纵向链通过后，由 #58 的 P4 集成收尾直接执行以下替换：
 
 1. Model Gateway 使用新的 Tool Session，不再接收 `DecisionContext.snapshot`。
 2. Context Composer 只接收 `InformationRuntime`/Information Client。
 3. Companion Runtime 删除直接 `backend.snapshot()` 认知读取。
 4. 删除 `availableSkills` 和 V1 model-facing skill schema；v0.2 不保留旧动作能力占位。
 5. `MinecraftSnapshotV1` 若 Driver 暂时仍需使用，降为 `src/minecraft/driver/` 私有实现类型，不从公共 index 导出。
-6. 新模块依赖检查禁止 `src/companion/`、`src/models/`、`src/memory/`、`src/grounding/` 导入 raw Minecraft contracts。
+6. #57 增加自动化 forbidden-import/旁路扫描，禁止 `src/companion/`、`src/models/`、`src/memory/`、`src/grounding/` 导入 raw Minecraft contracts 或继续使用上述旧认知入口。
 7. 删除为旧路径服务且没有新契约用途的测试、配置和事件名。
 
 不设置 feature flag、dual write、fallback 或自动回退到 snapshot。新路径失败时明确失败并修复。
@@ -984,7 +1007,7 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 1. 两个模型工具和 `InformationRuntime` 统一入口具有可验证 schema。
 2. Provider contract 能表达静态字段、当前 availability、partial Read、source、evidence、selector 和分页。
 3. Registry、AccessPolicy、scope、revision、Ref/Cursor Store 和 Tool Session 责任不重叠。
-4. `current_status` 样例能直接转成第一条实现与契约测试。
+4. Fake Provider 能验证公共 Runtime；`current_status` 样例可由 #55 直接转成第一条真实 Provider 与契约测试。
 5. UI/screen、inventory/tooltip、viewport/sound 三种共享关系不需要 Provider 递归调用。
 6. Context/Model/Controller 没有 raw Backend 或 snapshot 旁路。
 7. 旧 V1 决策、skill 目录和 snapshot 认知输入没有兼容要求。
