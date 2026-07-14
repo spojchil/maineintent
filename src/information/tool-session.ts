@@ -76,11 +76,32 @@ export class InformationToolSession {
     }
   }
 
-  operationSignal(upstream: AbortSignal): AbortSignal {
+  async runOperation<Result>(
+    upstream: AbortSignal,
+    operation: (signal: AbortSignal) => Promise<Result>,
+  ): Promise<Result> {
     const remainingMs = Date.parse(this.context.budget.deadlineAt) - Date.now()
-    if (remainingMs <= 0) return AbortSignal.abort(new Error('Information tool session deadline elapsed'))
-    const boundedMs = Math.max(1, Math.min(Math.ceil(remainingMs), 2_147_483_647))
-    return AbortSignal.any([upstream, AbortSignal.timeout(boundedMs)])
+    const controller = new AbortController()
+    const abortFromUpstream = () => controller.abort(upstream.reason)
+    if (upstream.aborted) abortFromUpstream()
+    else upstream.addEventListener('abort', abortFromUpstream, { once: true })
+
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    if (remainingMs <= 0) {
+      controller.abort(new Error('Information tool session deadline elapsed'))
+    } else {
+      const boundedMs = Math.max(1, Math.min(Math.ceil(remainingMs), 2_147_483_647))
+      deadlineTimer = setTimeout(() => {
+        controller.abort(new Error('Information tool session deadline elapsed'))
+      }, boundedMs)
+    }
+
+    try {
+      return await operation(controller.signal)
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+      upstream.removeEventListener('abort', abortFromUpstream)
+    }
   }
 }
 
@@ -116,10 +137,9 @@ export class InformationTool {
         : 'help',
     )
     if (reservation) return reservation
-    const result = await this.runtime.query(
-      session.caller(),
-      input,
-      session.operationSignal(signal),
+    const result = await session.runOperation(
+      signal,
+      (operationSignal) => this.runtime.query(session.caller(), input, operationSignal),
     )
     return session.record(result) ?? result
   }

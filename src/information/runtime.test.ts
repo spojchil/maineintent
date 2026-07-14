@@ -522,3 +522,50 @@ test('tool session deadline aborts a read already in progress', async () => {
   assert.equal('code' in result ? result.code : undefined, 'deadline_exceeded')
   assert.equal(aborted, true)
 })
+
+test('tool session forwards upstream cancellation to a read already in progress', async () => {
+  let abortReason: unknown
+  const port: InformationRuntimePort = {
+    catalog: () => ({
+      protocol: 'mineintent.information-catalog.v1',
+      status: 'not_modified',
+      catalogRevision: 'catalog:1',
+    }),
+    query: async (_caller, _request, signal) => new Promise((resolve) => {
+      signal.addEventListener('abort', () => {
+        abortReason = signal.reason
+        resolve({
+          protocol: 'mineintent.information-error.v1',
+          code: 'deadline_exceeded',
+          message: 'cancelled',
+        })
+      }, { once: true })
+    }),
+  }
+  const session = new InformationToolSession({
+    sessionId: 'session-upstream-abort',
+    decisionRunId: 'run-upstream-abort',
+    correlationId: 'correlation-upstream-abort',
+    principalId: 'companion-model',
+    grantId: 'grant-companion',
+    budget: {
+      maxCalls: 1,
+      maxReadCalls: 1,
+      maxReturnedBytes: 1_024,
+      deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  })
+  const upstream = new AbortController()
+  const expectedReason = new Error('caller cancelled')
+  const pending = new InformationTool(port).invoke({
+    interfaceId: 'current_status',
+    operation: 'read',
+    schemaRevision: 'current_status:1',
+    fields: ['health'],
+  }, session, upstream.signal)
+  upstream.abort(expectedReason)
+
+  const result = await pending
+  assert.equal('code' in result ? result.code : undefined, 'deadline_exceeded')
+  assert.equal(abortReason, expectedReason)
+})
