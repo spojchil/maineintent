@@ -154,6 +154,7 @@ interface InformationToolSessionContext {
 interface TrustedInformationCaller {
   principalId: string
   grantId: string
+  purpose: InformationGrant['purpose']
   correlationId: string
   decisionRunId?: string
   controllerLeaseId?: string
@@ -179,7 +180,7 @@ interface InformationRuntimeDiagnostics {
 }
 ```
 
-`TrustedInformationCaller` 只能由 Context Composer、Model Gateway、Controller Runtime 或 Operator API 构造。自然语言、模型 JSON 和 Minecraft 聊天都不能生成 caller 或 grant。Diagnostics 是单独的 privileged composition port，不从模型、Context 或 Controller 可达。
+`TrustedInformationCaller` 只能由 Context Composer、Model Gateway、Controller Runtime 或 Operator API 构造。Runtime 要求 caller purpose 与 grant purpose 精确相同，因此 operator grant 不能放进 Model Tool Session。自然语言、模型 JSON 和 Minecraft 聊天都不能生成 caller 或 grant。Diagnostics 是单独的 privileged composition port，不从模型、Context 或 Controller 可达。
 
 ## 6. Access Policy 与 grant
 
@@ -225,13 +226,22 @@ import type { ZodType } from 'zod'
 
 type FieldId<Values extends object> = Extract<keyof Values, string>
 
+type InformationScopeDependency =
+  | 'connection'
+  | 'world'
+  | 'dimension'
+  | 'ui'
+  | 'screen'
+
 interface InformationFieldDefinition<Value> {
   description: string
   valueSchema: ZodType<Value>
+  valueType: string
   unit?: string
   precision: 'displayed' | 'quantized' | 'exactly_displayed' | 'inferred'
   sourceKinds: readonly InformationSourceKind[]
   requires?: readonly string[]
+  notes?: string
 }
 
 interface InformationProviderDefinition<Values extends object> {
@@ -239,6 +249,7 @@ interface InformationProviderDefinition<Values extends object> {
   description: string
   schemaRevision: string
   audiences: readonly InformationAudience[]
+  scopeDependencies: readonly InformationScopeDependency[]
   fields: {
     readonly [Field in FieldId<Values>]: InformationFieldDefinition<Values[Field]>
   }
@@ -282,7 +293,11 @@ interface ProviderReadResult<Values extends object, PageState> {
   values: Partial<Values>
   unavailable: Array<{
     field: FieldId<Values>
-    reason: Exclude<InformationAvailability, 'available'>
+    reason:
+      | Exclude<InformationAvailability, 'available'>
+      | 'stale_selector'
+      | 'wrong_world'
+      | 'wrong_screen'
   }>
   source: {
     kind: InformationSourceKind
@@ -366,7 +381,7 @@ interface InformationRegistry {
 
 - 所有 Provider 在 App composition 阶段注册，`seal()` 后不可变。
 - 重复 interface ID、同一 Provider 内重复 field ID、空字段集、错误 schema 或无 audience 使启动失败；不同接口可以拥有同名字段。
-- `catalogRevision` 由锁定 Minecraft 版本和排序后的 Provider 描述符计算；当前 availability 不改变 catalog revision。
+- Registry base revision 由锁定 Minecraft 版本和排序后的 Provider 描述符计算；返回给 caller 的 effective `catalogRevision` 还哈希其当前 grant 可见的接口、schema 与字段集合。权限收窄会迫使模型刷新 Catalog/Help，当前 availability 仍不改变 revision。
 - v0.2 不支持运行时插件热装载。
 
 ## 9. Scope 与 revision 所有权
@@ -391,7 +406,7 @@ interface InformationScopeSource {
 
 | Revision | 所有者 | 何时变化 | 不应因何变化 |
 |---|---|---|---|
-| `catalogRevision` | Registry | Provider、字段描述符、audience 或目标版本变化 | 当前游戏值变化 |
+| `catalogRevision` | Registry + Access Policy | Provider、字段描述符、audience、目标版本或 caller 可见字段变化 | 当前游戏值变化 |
 | `schemaRevision` | 单个 Provider | 字段名、类型、单位、精度或语义变化 | availability 和当前值变化 |
 | `informationRevision` | Provider 对外投影 | 对外可见值或 availability 变化 | raw 状态中被过滤掉的隐藏变化 |
 | `connectionEpoch` | Backend lifecycle | 每次新连接尝试进入有效会话 | 重生或普通 screen 变化 |
@@ -445,7 +460,8 @@ Tool Adapter 收到 interfaceId + help/read
 → AccessPolicy 解析 grant；失败返回 audience_denied
 → Registry 查 Provider；失败返回 unknown_interface
 → 捕获 scopeBefore
-→ 校验 audience、interface、schema、字段、selector/cursor、limit 与 session budget
+→ 严格解析 envelope；额外/重复/畸形字段返回 invalid_request
+→ 校验 caller/grant purpose、audience、interface、schema、字段、selector/cursor、limit 与 session budget
 → help: 合并静态 field definition 与 Provider.current availability
 → read: 解析 opaque ref/page state，调用 Provider
 → 校验 Provider 只返回请求字段且所有值通过 schema
@@ -834,6 +850,7 @@ Tool result 是模型事实输入，不是私有思维链。每个 Read 的 `rea
 
 | 情况 | 外部结果 | 内部处理 |
 |---|---|---|
+| envelope/重复字段不合法 | `invalid_request` | 拒绝，不猜测修复 |
 | 字段当前不可见 | partial `unavailable` | 正常统计 |
 | 未知字段 | `unknown_field` | 提示重新 Help |
 | schema 变化 | `stale_schema` | 返回当前 revision |
@@ -953,7 +970,7 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 
 | 阶段 | Issue | 交付 |
 |---|---|---|
-| P0 | #53 | 本设计、contracts、Registry、Runtime、AccessPolicy、Ref/Cursor Store、fake provider、契约测试 |
+| P0 | #53 | 本设计、contracts、Registry、Runtime、AccessPolicy、Ref/Cursor Store、Fake Provider、契约测试；不实现真实游戏字段 |
 | P1 | #54 | Session/UI projection、UiContextProvider |
 | P1 | #55 | CurrentStatusProvider 第一条纵向链，再实现 hotbar/inventory/F3 |
 | P2 | #56 | HUD/chat/Tab/current screen/advancement/recipe providers |
@@ -984,7 +1001,7 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 1. 两个模型工具和 `InformationRuntime` 统一入口具有可验证 schema。
 2. Provider contract 能表达静态字段、当前 availability、partial Read、source、evidence、selector 和分页。
 3. Registry、AccessPolicy、scope、revision、Ref/Cursor Store 和 Tool Session 责任不重叠。
-4. `current_status` 样例能直接转成第一条实现与契约测试。
+4. Fake Provider 能验证公共 Runtime；`current_status` 样例可由 #55 直接转成第一条真实 Provider 与契约测试。
 5. UI/screen、inventory/tooltip、viewport/sound 三种共享关系不需要 Provider 递归调用。
 6. Context/Model/Controller 没有 raw Backend 或 snapshot 旁路。
 7. 旧 V1 决策、skill 目录和 snapshot 认知输入没有兼容要求。

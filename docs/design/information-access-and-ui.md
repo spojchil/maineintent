@@ -205,6 +205,7 @@ interface InformationRequestError {
   protocol: 'mineintent.information-error.v1'
   interfaceId?: InformationInterfaceId
   code:
+    | 'invalid_request'
     | 'unknown_interface'
     | 'stale_schema'
     | 'unknown_field'
@@ -227,7 +228,7 @@ type InformationToolResult<T> =
   | InformationRequestError
 ```
 
-Read 允许部分成功。某字段不可用不应使其他合法字段消失，也不得用内部值静默补齐。整个请求结构无效、schema 陈旧、字段未知或 audience 越权时返回 `InformationRequestError`，不产生半猜测结果。`source` 证明本次值经过哪类适配器取得；`evidenceIds` 连接到具体协议/观察证据，但不能让调用者反查 raw world。
+Read 允许部分成功。某字段不可用不应使其他合法字段消失，也不得用内部值静默补齐。整个请求结构无效、schema 陈旧、字段未知或 audience 越权时返回 `InformationRequestError`，不产生半猜测结果。`invalid_request` 专门表示 envelope、额外字段、重复字段或基本限额不合法，不用 `provider_failed` 掩盖调用方错误。`source` 证明本次值经过哪类适配器取得；`evidenceIds` 连接到具体协议/观察证据，但不能让调用者反查 raw world。
 
 ### 3.4 Selector、cursor 与大小边界
 
