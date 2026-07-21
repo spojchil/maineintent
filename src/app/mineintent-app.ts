@@ -4,7 +4,7 @@ import { CompanionRuntime, loadCompanionProfile } from '../companion/index.js'
 import { JsonlEventJournal } from '../events/index.js'
 import { FileMemoryStore } from '../memory/index.js'
 import { MinecraftBackend } from '../minecraft/index.js'
-import { OpenAICompatibleModelProvider } from '../models/index.js'
+import { AgentServiceModelProvider } from '../models/index.js'
 import { DebugStateStore, LocalDebugServer } from '../telemetry/index.js'
 import type { AppConfig } from './config.js'
 
@@ -19,7 +19,7 @@ export class MineIntentApp {
     const profile = await loadCompanionProfile(this.#config.profileFile)
     const debug = new DebugStateStore()
     const backend = new MinecraftBackend(this.#config.minecraft)
-    const model = new OpenAICompatibleModelProvider(this.#config.model)
+    const model = new AgentServiceModelProvider({ baseUrl: this.#config.agentServiceUrl })
     const memory = new FileMemoryStore(path.join(this.#config.dataDirectory, 'memories.json'))
     const journal = new JsonlEventJournal(path.join(this.#config.dataDirectory, 'events.jsonl'), this.#config.minecraft.worldId, randomUUID())
     const runtime = new CompanionRuntime({ backend, model, memory, journal, profile, debug, primaryPlayer: this.#config.primaryPlayer })

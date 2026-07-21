@@ -1,2 +1,2 @@
 export * from './contracts.js'
-export * from './openai-compatible.js'
+export * from './agent-service-client.js'

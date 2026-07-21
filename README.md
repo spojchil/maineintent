@@ -84,7 +84,11 @@ pnpm test
 Copy-Item .env.example .env
 ```
 
-确保目标 Minecraft Java Edition 1.21.1 服务器已经运行，再启动：
+确保目标 Minecraft Java Edition 1.21.1 服务器已经运行，再启动同伴决策服务和 Node 进程（两个独立进程）：
+
+```powershell
+python agent-service/server.py
+```
 
 ```powershell
 pnpm start
@@ -92,7 +96,7 @@ pnpm start
 
 同伴通过游戏聊天与主要玩家交流。默认调试状态位于 `http://127.0.0.1:3211/v1/state`；该接口只有 GET 能力，不提供游戏控制，并会遮盖密钥、令牌和原始私人正文。
 
-当前模型适配器使用 OpenAI-compatible Chat Completions JSON 输出。密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
+决策层（prompt 构造、OpenAI-compatible 调用与结果校验）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互，边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。模型密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
 
 在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 生命周期集成验收：
 

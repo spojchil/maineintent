@@ -13,9 +13,7 @@ const envSchema = z.object({
   MINEINTENT_PROFILE: z.string().trim().min(1).default('companion-profile.md'),
   MINEINTENT_DATA_DIR: z.string().trim().min(1).default('.mineintent'),
   MINEINTENT_DEBUG_PORT: z.coerce.number().int().min(0).max(65_535).default(3211),
-  MINEINTENT_MODEL_BASE_URL: z.string().url(),
-  MINEINTENT_MODEL_API_KEY: z.string().trim().min(1),
-  MINEINTENT_MODEL: z.string().trim().min(1),
+  MINEINTENT_AGENT_SERVICE_URL: z.string().url().default('http://127.0.0.1:8765'),
 })
 
 export interface AppConfig {
@@ -24,7 +22,7 @@ export interface AppConfig {
   profileFile: string
   dataDirectory: string
   debugPort: number
-  model: { baseUrl: string; apiKey: string; model: string }
+  agentServiceUrl: string
 }
 
 export function loadAppConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): AppConfig {
@@ -41,6 +39,6 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env, cwd = proces
     profileFile: path.resolve(cwd, value.MINEINTENT_PROFILE),
     dataDirectory: path.resolve(cwd, value.MINEINTENT_DATA_DIR),
     debugPort: value.MINEINTENT_DEBUG_PORT,
-    model: { baseUrl: value.MINEINTENT_MODEL_BASE_URL, apiKey: value.MINEINTENT_MODEL_API_KEY, model: value.MINEINTENT_MODEL },
+    agentServiceUrl: value.MINEINTENT_AGENT_SERVICE_URL,
   }
 }
