@@ -37,7 +37,7 @@ const MAX_LOOK_DISTANCE = 4.5
 const MAX_ENTITY_DISTANCE = 16
 const MAX_ENTITIES = 10
 const VISIBLE_BLOCKS_OPTIONS = {
-  horizontalRadius: 8, verticalRadius: 4, maxDistance: 10,
+  horizontalRadius: 32, verticalRadius: 4, maxDistance: 32, // 32 blocks == 2 chunks (chunks are a horizontal 16x16 division only)
   halfAngle: (35 * Math.PI) / 180, // approximates vanilla's default 70° FOV; a circular cone, not the real rectangular frustum
   limit: 24,
 }
