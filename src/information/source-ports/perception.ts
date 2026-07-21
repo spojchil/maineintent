@@ -42,6 +42,13 @@ export interface NearbyTrackedEntity {
 const EYE_HEIGHT = 1.62
 const STEP = 0.25
 
+/**
+ * A single ray along the exact current yaw/pitch, matching vanilla's own targeted-block
+ * mechanic (block_interaction_range: a fixed-distance raycast through the crosshair,
+ * independent of the FOV render setting — see docs research). Not finding anything is a
+ * normal, common result, not a sign of broken vision; a wider field of view is a separate,
+ * more complex design (full FOV/DDA viewport) intentionally out of scope here.
+ */
 export function raycastLookedAtBlock(port: PerceptionPort, maxDistance: number): LookedAtBlock | null {
   const pose = port.selfPose()
   const direction = lookDirection(pose.yaw, pose.pitch)
@@ -59,6 +66,14 @@ export function raycastLookedAtBlock(port: PerceptionPort, maxDistance: number):
     if (block.solid) return { name: block.name, distance }
   }
   return null
+}
+
+export function standingOnBlock(port: PerceptionPort): { name: string } | null {
+  const pose = port.selfPose()
+  const below = port.blockAt({
+    x: Math.floor(pose.position.x), y: Math.floor(pose.position.y) - 1, z: Math.floor(pose.position.z),
+  })
+  return below === 'unloaded' ? null : { name: below.name }
 }
 
 export function nearbyTrackedEntities(

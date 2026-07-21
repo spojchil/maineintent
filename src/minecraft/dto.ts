@@ -1,3 +1,4 @@
+import { Vec3 } from 'vec3'
 import type {
   AabbValue,
   BlockPosition,
@@ -77,6 +78,8 @@ export function readBlock(bot: BotLike, position: BlockPosition): BlockReadResul
   const minY = bot.game?.minY ?? -64
   const height = bot.game?.height ?? 384
   if (position.y < minY || position.y >= minY + height) return { status: 'out_of_world' }
-  const block = bot.world?.getBlock(position)
+  // prismarine-world's real getBlock() calls Vec3 methods (e.g. .floored()) on the position;
+  // a plain {x,y,z} object throws inside it, so it must be a real Vec3 instance here.
+  const block = bot.world?.getBlock(new Vec3(position.x, position.y, position.z))
   return block ? { status: 'loaded', block: blockDto(block) } : { status: 'unloaded' }
 }

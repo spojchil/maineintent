@@ -123,9 +123,29 @@ export class CompanionRuntime {
     await this.#memory.load()
     this.#unsubscribe = this.#backend.subscribe(event => { void this.#handleBackendEvent(event) })
     await this.#backend.start(this.#abort.signal)
+    await this.#waitForSelfChunk()
     this.#refreshDebug()
     const event = await this.#rememberRecent('companion.started', '同伴加入世界')
     this.#enqueueDecision({ type: 'startup', eventId: event.id })
+  }
+
+  /**
+   * `MinecraftBackendApi.start()` resolves once Mineflayer reports spawn-ready, but the chunk
+   * under the bot's own feet can still arrive a moment later — without this wait, the very
+   * first decision's viewport observation reports `standingOnBlock: null` even while standing
+   * on solid, server-confirmed ground, purely because of this startup race.
+   */
+  async #waitForSelfChunk(attempts = 20, intervalMs = 100): Promise<void> {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const position = this.#backend.snapshot().self.position
+        const result = this.#backend.observationSource().readBlock({
+          x: Math.floor(position.x), y: Math.floor(position.y) - 1, z: Math.floor(position.z),
+        })
+        if (result.status !== 'unloaded') return
+      } catch { /* backend not yet ready for observation queries */ }
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+    }
   }
 
   async stop(reason = 'runtime_stopped'): Promise<void> {
@@ -213,7 +233,7 @@ export class CompanionRuntime {
       ...memories.map(memory => ({ id: memory.id, kind: 'memory' as const, size: memory.summary.length })),
       { id: 'prototype-skills-v1', kind: 'skill_registry', size: 5 },
     ]
-    this.#debug.update({ decision: { status: 'running', runId, startedAt: new Date().toISOString(), contextSources: sources, retrievedMemoryIds: memories.map(memory => memory.id) } })
+    this.#debug.update({ observations, decision: { status: 'running', runId, startedAt: new Date().toISOString(), contextSources: sources, retrievedMemoryIds: memories.map(memory => memory.id) } })
     const context: DecisionContext = {
       runId, trigger, primaryPlayer: this.#primaryPlayer, profile: this.#profile, snapshot,
       activity: this.#activity ? structuredClone(this.#activity) : undefined,

@@ -29,7 +29,22 @@ function context() {
 test('viewport provider satisfies the provider contract', async () => {
   const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
   const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map()))
-  await assertInformationProviderContract(provider, { context: context(), request: { fields: ['lookedAtBlock', 'nearbyTrackedEntities'], page: { limit: 1 } } })
+  await assertInformationProviderContract(provider, { context: context(), request: { fields: ['standingOnBlock', 'lookedAtBlock', 'nearbyTrackedEntities'], page: { limit: 1 } } })
+})
+
+test('viewport provider reports the block directly underfoot', async () => {
+  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,63,0', { name: 'grass_block', solid: true }]])
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
+  const result = await provider.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)
+  assert.deepEqual(result.values.standingOnBlock, { name: 'grass_block' })
+})
+
+test('viewport provider reports standingOnBlock as null when underfoot is unloaded', async () => {
+  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map([['0,63,0', 'unloaded']])))
+  const result = await provider.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)
+  assert.equal(result.values.standingOnBlock, null)
 })
 
 test('viewport provider finds the nearest solid block along the sightline', async () => {

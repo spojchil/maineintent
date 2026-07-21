@@ -59,6 +59,20 @@ test('companion runtime completes wood activity, obeys stop and recalls the epis
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('companion runtime waits for the self chunk to load before its first decision', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-chunk-'))
+  try {
+    const backend = new FakeBackend()
+    backend.chunkLoadsAfterReadBlockCalls = 3
+    const model = new ScriptedModel()
+    const runtime = createRuntime(backend, model, path.join(root, 'memories.json'), path.join(root, 'events.jsonl'))
+    await runtime.start()
+    await settle(runtime)
+    assert.equal(model.contexts[0]?.observations.viewport?.standingOnBlock?.name, 'grass_block')
+    await runtime.stop('test_complete')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 function createRuntime(backend: FakeBackend, model: ScriptedModel, memoryFile: string, journalFile: string): CompanionRuntime {
   const debug = new DebugStateStore()
   model.debug = debug
@@ -117,8 +131,10 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   wood = 0
   sent: string[] = []
   controlsInstance = new FakeControls(this)
+  chunkLoadsAfterReadBlockCalls = 0
   #state: BackendState = { status: 'idle' }
   #revision = 0
+  #readBlockCalls = 0
 
   async start(): Promise<BackendReady> {
     this.#state = { status: 'ready', epoch: 1, attemptId: 'attempt', readyAt: new Date().toISOString() }
@@ -146,7 +162,12 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
         position: { x: 0, y: 64, z: 1 }, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0,
         width: 0.6, height: 1.8, onGround: true, equipment: [], valid: true,
       }],
-      readBlock: () => ({ status: 'unloaded' }),
+      readBlock: (position) => {
+        this.#readBlockCalls++
+        if (position.y !== Math.floor(this.position.y) - 1) return { status: 'unloaded' }
+        if (this.#readBlockCalls <= this.chunkLoadsAfterReadBlockCalls) return { status: 'unloaded' }
+        return { status: 'loaded', block: { position, name: 'grass_block', stateId: 1, properties: {}, collisionShapes: [], transparentHint: false, boundingBox: 'block' } }
+      },
       subscribe: () => () => {},
     }
   }

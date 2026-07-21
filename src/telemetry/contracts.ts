@@ -1,3 +1,4 @@
+import type { PassiveObservations } from '../information/index.js'
 import type { BackendState, Vec3Value } from '../minecraft/contracts.js'
 import type { BodyResource } from '../actions/contracts.js'
 
@@ -31,6 +32,7 @@ export interface CompanionDebugState {
   currentAction?: { id: string; skill: string; purpose: string; startedAt: string }
   resourceLocks: Readonly<Record<BodyResource, string | undefined>>
   recentFailures: readonly DebugFailureSummary[]
+  observations?: PassiveObservations
   decision?: {
     status: 'idle' | 'running' | 'failed'
     runId?: string
