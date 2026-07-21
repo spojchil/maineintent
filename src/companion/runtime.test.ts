@@ -137,7 +137,19 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
     }
   }
   subscribe(listener: (event: BackendEventEnvelope) => void): Unsubscribe { this.on('backend', listener); return () => this.off('backend', listener) }
-  observationSource(): ProtocolObservationSource { throw new Error('not used') }
+  observationSource(): ProtocolObservationSource {
+    return {
+      epoch: () => 1,
+      selfPose: () => ({ position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0 }),
+      listTrackedEntities: () => [{
+        entityKey: '1:alex', protocolEntityId: 1, type: 'player', username: 'Alex',
+        position: { x: 0, y: 64, z: 1 }, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0,
+        width: 0.6, height: 1.8, onGround: true, equipment: [], valid: true,
+      }],
+      readBlock: () => ({ status: 'unloaded' }),
+      subscribe: () => () => {},
+    }
+  }
   controls(): MinecraftControlsApi { return this.controlsInstance }
   sendChat(message: string): void { this.sent.push(message) }
   chat(text: string): void {

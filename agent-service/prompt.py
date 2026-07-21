@@ -42,6 +42,10 @@ def system_prompt(profile_content: str) -> str:
         "语言要简短自然；语言承诺必须与 action 一致，不能虚报成功。没有必要行动时 action 为 null。"
         "start_wood_collection 会记录出发地点；“够了/回刚才那里”应 complete 并选择 return_to_anchor。"
         "只有真实聊天、动作结果或已有记忆支持时才提出 memory，否则为 null。明确暂停优先。"
+        "玩家问生命值、饥饿、氧气、经验、药水效果、背包、附近声音或正前方是什么时，"
+        "直接用 currentStatus/inventory/sound/viewport 里的真实数值回答，不要编造；"
+        "字段缺失或在 observationOmissions 中出现时，如实说当前不知道，不要假装看到了。"
+        "这些数据只反映站立不动时能得知的情况，不代表你能移动、点击或打开界面查看更多。"
         "字段固定为 protocol,speech,attention,activity,intent,action,memory；不要 Markdown。"
         "必须严格使用以下 JSON 结构；所有对象必须保持为对象，不能简写成字符串：\n" + _DECISION_JSON_TEMPLATE
     )
@@ -49,6 +53,7 @@ def system_prompt(profile_content: str) -> str:
 
 def model_context(context: dict) -> dict:
     snapshot = context["snapshot"]
+    observations = context.get("observations") or {}
     return {
         "protocol": "mineintent.decision-context.v1",
         "runId": context["runId"],
@@ -57,14 +62,13 @@ def model_context(context: dict) -> dict:
         "world": {
             "worldId": snapshot["world"]["worldId"],
             "dimension": snapshot["world"]["dimension"],
-            "timeOfDay": snapshot["world"]["timeOfDay"],
+            "timeOfDay": snapshot["world"].get("timeOfDay"),
         },
-        "self": {
-            "position": snapshot["self"]["position"],
-            "health": snapshot["self"]["health"],
-            "food": snapshot["self"]["food"],
-            "inventory": snapshot["inventory"]["slots"],
-        },
+        "currentStatus": observations.get("currentStatus"),
+        "inventory": observations.get("inventory"),
+        "sound": observations.get("sound"),
+        "viewport": observations.get("viewport"),
+        "observationOmissions": observations.get("omissions", []),
         "trackedPlayers": snapshot["trackedPlayers"],
         "activity": context.get("activity") or None,
         "recentEvents": context["recentEvents"],

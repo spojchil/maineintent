@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { PassiveObservations } from '../information/index.js'
 import type { MinecraftSnapshotV1 } from '../minecraft/contracts.js'
 import type { MemoryRecord } from '../memory/contracts.js'
 import type { CompanionProfile } from '../companion/profile.js'
@@ -34,6 +35,7 @@ export interface DecisionContext {
   activity?: { id: string; kind: string; status: string; summary: string; anchor?: { x: number; y: number; z: number } }
   recentEvents: Array<{ id: string; type: string; summary: string }>
   memories: MemoryRecord[]
+  observations: PassiveObservations
   availableSkills: readonly string[]
 }
 

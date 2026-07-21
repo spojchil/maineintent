@@ -1,6 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { ActionRuntime, type ActionResult } from '../actions/index.js'
 import type { JsonlEventJournal } from '../events/index.js'
+import {
+  composePassiveObservations,
+  CurrentStatusProvider,
+  InformationRegistry,
+  InformationRuntime,
+  InMemoryInformationAccessPolicy,
+  InventoryProvider,
+  SoundInformationProvider,
+  ViewportInformationProvider,
+  type PassiveObservations,
+  type TrustedInformationCaller,
+} from '../information/index.js'
 import type { FileMemoryStore, MemoryKind } from '../memory/index.js'
 import type { BackendEventEnvelope, MinecraftBackendApi, ProtocolChatEvent, Vec3Value } from '../minecraft/contracts.js'
 import type { CompanionDecision, DecisionContext, ModelProvider } from '../models/index.js'
@@ -8,7 +20,17 @@ import { interpretPlayerChat, SpeechScheduler } from '../speech/index.js'
 import { registerPrototypeSkills } from '../skills/index.js'
 import type { DebugContextSource } from '../telemetry/contracts.js'
 import type { DebugStateStore } from '../telemetry/debug-state.js'
+import {
+  BackendInformationScopeSource,
+  BackendInventoryPort,
+  BackendPerceptionPort,
+  BackendSelfVitalsPort,
+  SoundHistory,
+} from './information-adapters.js'
 import type { CompanionProfile } from './profile.js'
+
+const INFORMATION_GRANT_ID = 'grant-context-composer'
+const INFORMATION_PRINCIPAL_ID = 'context-composer'
 
 export interface CompanionActivity {
   id: string
@@ -46,6 +68,8 @@ export class CompanionRuntime {
   readonly #primaryPlayer: string
   readonly #actions = new ActionRuntime()
   readonly #speech: SpeechScheduler
+  readonly #soundHistory: SoundHistory
+  readonly #informationRuntime: InformationRuntime
   readonly #abort = new AbortController()
   readonly #recentEvents: Array<{ id: string; type: string; summary: string }> = []
   readonly #deferredMemories = new Map<string, DeferredMemory>()
@@ -72,6 +96,8 @@ export class CompanionRuntime {
       minimumIntervalMs: options.speechIntervalMs ?? 1_000,
       onEvent: event => { void this.#journal.append(`speech.${event.type}`, withoutPrivateSpeech(event)) },
     })
+    this.#soundHistory = new SoundHistory(this.#backend)
+    this.#informationRuntime = buildInformationRuntime(this.#backend, this.#soundHistory)
     registerPrototypeSkills(this.#actions, this.#backend, this.#primaryPlayer, () => this.#activity)
     this.#actions.subscribe(event => {
       if (event.type === 'action_started') {
@@ -113,6 +139,7 @@ export class CompanionRuntime {
     await this.#decisionTail
     this.#speech.stop(reason)
     this.#unsubscribe?.()
+    this.#soundHistory.dispose()
     await this.#backend.stop(reason)
     await this.#journal.append('companion.stopped', { reason })
     await this.#journal.flush()
@@ -178,6 +205,7 @@ export class CompanionRuntime {
     const snapshot = this.#backend.snapshot()
     const query = [trigger.text, this.#activity?.summary, '上次 共同 经历 地点'].filter(Boolean).join(' ')
     const memories = (await this.#memory.search(snapshot.world.worldId, query, 5)).map(result => result.record)
+    const observations = await this.#composePassiveObservations(runId, controller.signal)
     const sources: DebugContextSource[] = [
       { id: this.#profile.versionId, kind: 'profile', size: this.#profile.content.length },
       { id: trigger.eventId, kind: trigger.type === 'player_chat' ? 'player' : 'event', size: trigger.text?.length ?? 0 },
@@ -189,7 +217,7 @@ export class CompanionRuntime {
     const context: DecisionContext = {
       runId, trigger, primaryPlayer: this.#primaryPlayer, profile: this.#profile, snapshot,
       activity: this.#activity ? structuredClone(this.#activity) : undefined,
-      recentEvents: structuredClone(this.#recentEvents), memories,
+      recentEvents: structuredClone(this.#recentEvents), memories, observations,
       availableSkills: ['follow_player', 'collect_wood', 'return_to_anchor', 'wait'],
     }
     const started = Date.now()
@@ -334,6 +362,19 @@ export class CompanionRuntime {
     })
   }
 
+  async #composePassiveObservations(runId: string, signal: AbortSignal): Promise<PassiveObservations> {
+    const caller: TrustedInformationCaller = {
+      principalId: INFORMATION_PRINCIPAL_ID, grantId: INFORMATION_GRANT_ID, purpose: 'companion_context',
+      correlationId: runId, decisionRunId: runId,
+    }
+    try {
+      return await composePassiveObservations(this.#informationRuntime, caller, signal)
+    } catch (error) {
+      this.#recordFailure('runtime', 'passive_observations_failed', error)
+      return { omissions: [] }
+    }
+  }
+
   async #rememberRecent(type: string, summary: string): Promise<{ id: string }> {
     const event = await this.#journal.append(type, { summary })
     this.#pushRecent(event.id, type, summary)
@@ -363,4 +404,24 @@ function withoutPrivateSpeech(event: unknown): unknown {
   const copy = { ...(event as Record<string, unknown>) }
   if ('text' in copy) copy.text = '[REDACTED]'
   return copy
+}
+
+function buildInformationRuntime(backend: MinecraftBackendApi, soundHistory: SoundHistory): InformationRuntime {
+  const registry = new InformationRegistry()
+  registry.register(new CurrentStatusProvider(new BackendSelfVitalsPort(backend)))
+  registry.register(new InventoryProvider(new BackendInventoryPort(backend)))
+  registry.register(new SoundInformationProvider(soundHistory))
+  registry.register(new ViewportInformationProvider(new BackendPerceptionPort(backend)))
+  registry.seal('1.21.1')
+
+  const accessPolicy = new InMemoryInformationAccessPolicy()
+  accessPolicy.put({
+    id: INFORMATION_GRANT_ID, principalId: INFORMATION_PRINCIPAL_ID, audience: 'companion',
+    allowedInterfaces: ['current_status', 'inventory_information', 'sound_information', 'viewport_information'],
+    purpose: 'companion_context',
+  })
+
+  return new InformationRuntime({
+    registry, accessPolicy, scopeSource: new BackendInformationScopeSource(backend, randomUUID()),
+  })
 }

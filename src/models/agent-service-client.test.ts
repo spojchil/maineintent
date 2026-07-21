@@ -40,6 +40,6 @@ function context(): DecisionContext {
       world: { worldId: 'world', dimension: 'overworld', minecraftVersion: '1.21.1', protocolVersion: 767, gameMode: 'survival', minY: -64, height: 384 },
       self: { entityKey: 'self', username: 'Bot', position: { x: 0, y: 64, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, onGround: true, alive: true, health: 20, food: 20, foodSaturation: 5, effects: [] },
       inventory: { selectedHotbarSlot: 0, slots: [] }, trackedPlayers: [],
-    }, activity: undefined, recentEvents: [], memories: [], availableSkills: ['collect_wood'],
+    }, activity: undefined, recentEvents: [], memories: [], observations: { omissions: [] }, availableSkills: ['collect_wood'],
   }
 }
