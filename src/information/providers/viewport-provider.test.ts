@@ -29,7 +29,16 @@ function context() {
 test('viewport provider satisfies the provider contract', async () => {
   const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
   const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map()))
-  await assertInformationProviderContract(provider, { context: context(), request: { fields: ['standingOnBlock', 'lookedAtBlock', 'nearbyTrackedEntities'], page: { limit: 1 } } })
+  await assertInformationProviderContract(provider, { context: context(), request: { fields: ['standingOnBlock', 'lookedAtBlock', 'nearbyTrackedEntities', 'visibleBlocks'], page: { limit: 1 } } })
+})
+
+test('viewport provider surfaces visibleBlocks through the read path', async () => {
+  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', { name: 'stone', solid: true }]])
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
+  const result = await provider.read(context(), { fields: ['visibleBlocks'], page: { limit: 1 } }, new AbortController().signal)
+  assert.equal(result.values.visibleBlocks?.truncated, false)
+  assert.deepEqual(result.values.visibleBlocks?.blocks[0], { offsetX: 0, offsetY: 1, offsetZ: -3, distance: result.values.visibleBlocks.blocks[0]!.distance, name: 'stone' })
 })
 
 test('viewport provider reports the block directly underfoot', async () => {
