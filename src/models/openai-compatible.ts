@@ -67,8 +67,28 @@ function systemPrompt(profile: string): string {
     '语言要简短自然；语言承诺必须与 action 一致，不能虚报成功。没有必要行动时 action 为 null。' +
     'start_wood_collection 会记录出发地点；“够了/回刚才那里”应 complete 并选择 return_to_anchor。' +
     '只有真实聊天、动作结果或已有记忆支持时才提出 memory，否则为 null。明确暂停优先。' +
-    '字段固定为 protocol,speech,attention,activity,intent,action,memory；不要 Markdown。'
+    '字段固定为 protocol,speech,attention,activity,intent,action,memory；不要 Markdown。' +
+    '必须严格使用以下 JSON 结构；所有对象必须保持为对象，不能简写成字符串：\n' + decisionJsonTemplate
 }
+
+const decisionJsonTemplate = JSON.stringify({
+  protocol: 'mineintent.companion-decision.v1',
+  speech: null,
+  attention: { kind: 'environment', target: null },
+  activity: { operation: 'keep', summary: '等待玩家一起游玩' },
+  intent: { kind: 'observe', summary: '留意玩家和周围环境' },
+  action: null,
+  memory: null,
+}, null, 2) + '\n' +
+  'activity.operation 只能取一个值：keep、start_wood_collection、pause、resume、complete、abandon。' +
+  'speech、attention.target、action、memory 可以为 JSON null；不要输出带竖线的枚举说明字符串。\n' +
+  'action 非 null 时只能是以下之一：' + JSON.stringify([
+    { skill: 'follow_player', args: { range: 3 }, purpose: '行动目的' },
+    { skill: 'collect_wood', args: { count: 4, maxDistance: 32 }, purpose: '行动目的' },
+    { skill: 'return_to_anchor', args: {}, purpose: '行动目的' },
+    { skill: 'wait', args: { durationSeconds: 10 }, purpose: '行动目的' },
+  ]) + '\n' +
+  'memory 非 null 时必须是 {"kind":"episode|place|commitment|player_preference","summary":"有证据支持的记忆"}。'
 
 function modelContext(context: DecisionContext): unknown {
   return {
