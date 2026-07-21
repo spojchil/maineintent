@@ -5,6 +5,8 @@ dist/
 *.log
 research/repos/
 .artifacts/
+__pycache__/
+*.pyc
 
 # Local Minecraft server runtime and worlds
 mcserver/.mc-server/
