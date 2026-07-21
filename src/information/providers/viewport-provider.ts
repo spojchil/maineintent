@@ -12,7 +12,8 @@ export interface ViewportValues {
     distance: number
     direction: 'ahead' | 'right' | 'behind' | 'left'
   }>
-  visibleBlocks: { blocks: Array<{ offsetX: number; offsetY: number; offsetZ: number; distance: number; name: string }>; truncated: boolean }
+  /** Each block is a positional [offsetX, offsetY, offsetZ, name] tuple, nearest first — not a keyed object, to avoid repeating the same four key names in every entry. */
+  visibleBlocks: { blocks: Array<[number, number, number, string]>; truncated: boolean }
 }
 
 const standingOnBlockSchema = z.object({ name: z.string().min(1) }).nullable()
@@ -25,10 +26,7 @@ const nearbyEntitySchema = z.array(z.object({
   direction: z.enum(['ahead', 'right', 'behind', 'left']),
 }))
 const visibleBlocksSchema = z.object({
-  blocks: z.array(z.object({
-    offsetX: z.number().int(), offsetY: z.number().int(), offsetZ: z.number().int(),
-    distance: z.number().min(0), name: z.string().min(1),
-  })),
+  blocks: z.array(z.tuple([z.number().int(), z.number().int(), z.number().int(), z.string().min(1)])),
   truncated: z.boolean(),
 })
 
@@ -62,7 +60,7 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
   readonly definition: InformationProviderDefinition<ViewportValues> = {
     id: 'viewport_information',
     description: '站立不动时的合理视觉：脚下方块、准星精确指向的方块、附近协议追踪到的实体，以及正前方视野内的方块（分层过滤近似）',
-    schemaRevision: 'viewport-information:3',
+    schemaRevision: 'viewport-information:4',
     audiences: ['companion'] as const,
     fields: {
       standingOnBlock: {
@@ -79,8 +77,9 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
         valueSchema: nearbyEntitySchema, valueType: 'array', precision: 'inferred', sourceKinds: ['viewport_projection'],
       },
       visibleBlocks: {
-        description: '正前方视野锥（约70度）、10格内、经过遮挡判定后仍可见的方块列表；坐标是相对自身位置的偏移量（offsetX/Y/Z），不是世界绝对坐标；' +
-          '按距离由近到远排序，可能被截断（truncated）；非整块方块按整格实心简化处理，是近似值不是精确渲染结果',
+        description: '正前方视野锥（约70度）、32格内、经过遮挡判定后仍可见的方块列表；blocks 每项是 ' +
+          '[offsetX, offsetY, offsetZ, name] 四元组，坐标是相对自身位置的整数偏移量，不是世界绝对坐标，也不含距离字段' +
+          '（可自行从偏移量估算远近）；按距离由近到远排序，可能被截断（truncated）；非整块方块按整格实心简化处理，是近似值不是精确渲染结果',
         valueSchema: visibleBlocksSchema, valueType: 'object', precision: 'inferred', sourceKinds: ['viewport_projection'],
       },
     },
@@ -107,7 +106,7 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
     if (request.fields.includes('visibleBlocks')) {
       const result = visibleBlocks(this.#port, VISIBLE_BLOCKS_OPTIONS)
       values.visibleBlocks = {
-        blocks: result.blocks.map((block) => ({ offsetX: block.offset.x, offsetY: block.offset.y, offsetZ: block.offset.z, distance: block.distance, name: block.name })),
+        blocks: result.blocks.map((block): [number, number, number, string] => [block.offset.x, block.offset.y, block.offset.z, block.name]),
         truncated: result.truncated,
       }
     }

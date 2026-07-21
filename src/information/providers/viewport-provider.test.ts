@@ -38,7 +38,7 @@ test('viewport provider surfaces visibleBlocks through the read path', async () 
   const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
   const result = await provider.read(context(), { fields: ['visibleBlocks'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.visibleBlocks?.truncated, false)
-  assert.deepEqual(result.values.visibleBlocks?.blocks[0], { offsetX: 0, offsetY: 1, offsetZ: -3, distance: result.values.visibleBlocks.blocks[0]!.distance, name: 'stone' })
+  assert.deepEqual(result.values.visibleBlocks?.blocks[0], [0, 1, -3, 'stone'])
 })
 
 test('viewport provider reports the block directly underfoot', async () => {
