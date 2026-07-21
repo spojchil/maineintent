@@ -7,26 +7,36 @@ test('distanceBetween computes 3D euclidean distance', () => {
   assert.equal(distanceBetween({ x: 1, y: 1, z: 1 }, { x: 1, y: 1, z: 1 }), 0)
 })
 
-test('lookDirection points south at yaw 0 pitch 0', () => {
-  const direction = lookDirection(0, 0)
-  assert.ok(Math.abs(direction.x) < 1e-9)
-  assert.ok(Math.abs(direction.z - 1) < 1e-9)
-  assert.ok(Math.abs(direction.y) < 1e-9)
+// Pinned against mineflayer's own yaw/pitch-to-direction formula (lib/plugins/ray_trace.js
+// getViewDirection, and mineflayer-pathfinder's independent getViewVector/blockInteraction
+// example — all three agree). If this ever needs to change, re-verify against those first;
+// a silent sign flip here means every raycast/bearing looks the wrong way without erroring.
+test('lookDirection matches mineflayer\'s own yaw/pitch-to-direction formula', () => {
+  const cases: Array<[number, number, [number, number, number]]> = [
+    [0, 0, [0, 0, -1]],
+    [Math.PI / 2, 0, [-1, 0, 0]],
+    [0, Math.PI / 2, [0, 1, 0]],
+  ]
+  for (const [yaw, pitch, [x, y, z]] of cases) {
+    const direction = lookDirection(yaw, pitch)
+    assert.ok(Math.abs(direction.x - x) < 1e-9, `x for yaw=${yaw} pitch=${pitch}`)
+    assert.ok(Math.abs(direction.y - y) < 1e-9, `y for yaw=${yaw} pitch=${pitch}`)
+    assert.ok(Math.abs(direction.z - z) < 1e-9, `z for yaw=${yaw} pitch=${pitch}`)
+  }
 })
 
 test('relativeBearing classifies target position relative to self facing', () => {
   const self = { x: 0, y: 64, z: 0 }
-  assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: 5 }), 'ahead')
-  assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: -5 }), 'behind')
+  assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: -5 }), 'ahead')
+  assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: 5 }), 'behind')
   assert.equal(relativeBearing(0, self, { x: -5, y: 64, z: 0 }), 'right')
   assert.equal(relativeBearing(0, self, { x: 5, y: 64, z: 0 }), 'left')
 })
 
 test('relativeBearing rotates with self yaw', () => {
   const self = { x: 0, y: 64, z: 0 }
-  // facing east (yaw = -PI/2 in this convention: lookDirection(-PI/2,0) -> x=1,z=0)
-  const facingEastYaw = -Math.PI / 2
-  assert.equal(relativeBearing(facingEastYaw, self, { x: 5, y: 64, z: 0 }), 'ahead')
+  const facingPositiveX = -Math.PI / 2 // lookDirection(-PI/2, 0) -> (1, 0, 0)
+  assert.equal(relativeBearing(facingPositiveX, self, { x: 5, y: 64, z: 0 }), 'ahead')
 })
 
 test('relativeBearing defaults to ahead when target is exactly at self position', () => {

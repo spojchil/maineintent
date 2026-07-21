@@ -49,7 +49,7 @@ test('viewport provider reports standingOnBlock as null when underfoot is unload
 
 test('viewport provider finds the nearest solid block along the sightline', async () => {
   const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,3', { name: 'stone', solid: true }]])
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', { name: 'stone', solid: true }]])
   const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
   const result = await provider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.lookedAtBlock?.name, 'stone')
@@ -65,7 +65,7 @@ test('viewport provider reports null when the sightline is all air within range'
 test('viewport provider stops at unloaded terrain instead of guessing past it', async () => {
   const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
   const blocks = new Map<string, PerceptionBlock | 'unloaded'>()
-  for (let z = 0; z <= 6; z++) blocks.set(`0,65,${z}`, 'unloaded')
+  for (let z = 0; z >= -6; z--) blocks.set(`0,65,${z}`, 'unloaded')
   const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
   const result = await provider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.lookedAtBlock, null)
@@ -74,9 +74,9 @@ test('viewport provider stops at unloaded terrain instead of guessing past it', 
 test('viewport provider sorts nearby tracked entities by distance and bounds the list', async () => {
   const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
   const entities: PerceptionEntityCandidate[] = [
-    { type: 'zombie', position: { x: 0, y: 64, z: 10 } },
-    { type: 'player', username: 'Alex', position: { x: 0, y: 64, z: 2 } },
-    { type: 'cow', position: { x: 0, y: 64, z: 30 } },
+    { type: 'zombie', position: { x: 0, y: 64, z: -10 } },
+    { type: 'player', username: 'Alex', position: { x: 0, y: 64, z: -2 } },
+    { type: 'cow', position: { x: 0, y: 64, z: -30 } },
   ]
   const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map(), entities))
   const result = await provider.read(context(), { fields: ['nearbyTrackedEntities'], page: { limit: 1 } }, new AbortController().signal)
