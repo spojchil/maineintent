@@ -52,6 +52,16 @@ export class GroundedReferentStore {
     return structuredClone(stored)
   }
 
+  isCurrent(input: {
+    handle: string
+    decisionRunId: string
+    effectId: string
+    worldId: string
+    epoch: number
+  }): boolean {
+    return this.resolve(input) !== undefined
+  }
+
   revoke(handle: string): void { this.#entries.delete(handle) }
 
   invalidateWorld(worldId: string, epoch: number): void {
