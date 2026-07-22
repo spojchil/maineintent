@@ -39,6 +39,8 @@ export interface LookedAtBlock { name: string; distance: number; position: Point
 export interface VisibleEntity {
   entityKey: string
   position: Point3
+  /** Internal visual sample used by a scoped gaze controller; never published by the provider. */
+  aimPosition: Point3
   type: string
   name?: string
   username?: string
@@ -199,6 +201,7 @@ export function visibleEntities(
     return [{
       entityKey: entity.entityKey,
       position: entity.position,
+      aimPosition: center,
       type: entity.type,
       ...(entity.name ? { name: entity.name } : {}),
       ...(entity.username ? { username: entity.username } : {}),
