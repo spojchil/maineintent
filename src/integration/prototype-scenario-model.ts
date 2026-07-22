@@ -13,6 +13,32 @@ export class PrototypeScenarioModel implements ModelProvider {
       text: memoryFragments(context).length ? '我回来了，还记得上次一起收集木材。' : '我来了，今天一起做点什么？',
       audience: { kind: 'primary_player' }, timing: 'now', purpose: 'social',
     }]))
+    if (text.includes('看向我')) return result(decision(context, [
+      {
+        id: 'embodied_gaze', kind: 'embodied_intent', summary: '与说话者建立视觉共同注意', desiredOutcome: '看向说话者',
+        semanticGoal: {
+          schema: 'mineintent.semantic-goal.v1',
+          objective: { kind: 'state', state: {
+            id: 'state_attention', concept: 'self.attention_includes', description: '自身视觉注意覆盖说话者',
+            arguments: {
+              observer: { kind: 'self' }, subject: { kind: 'referent_role', role: 'speaker' },
+            },
+          } },
+          methodGuidance: [],
+        },
+        referents: [{ role: 'speaker', selection: { kind: 'message_referent', eventId, expression: '我' } }],
+        constraints: { maxDurationMs: 8_000, interruptibility: 'immediate' },
+      },
+      {
+        id: 'speech_gaze_started', kind: 'speech', text: '好，我转过来看看。',
+        audience: { kind: 'primary_player' }, timing: 'after_intent_accepted', dependsOn: ['embodied_gaze'], purpose: 'coordinate',
+      },
+      {
+        id: 'speech_gaze_done', kind: 'speech', text: '看到你了。',
+        audience: { kind: 'primary_player' }, timing: 'after_intent_terminal', dependsOn: ['embodied_gaze'],
+        terminalCondition: 'completed', purpose: 'report',
+      },
+    ]))
     if (text.includes('一起收集')) return result(decision(context, [
       {
         id: 'activity_collect', kind: 'activity', operation: 'propose', summary: '和主要玩家一起收集木材',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { copyFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import mineflayer, { type Bot } from 'mineflayer'
 import { randomUUID } from 'node:crypto'
@@ -93,6 +93,23 @@ async function companionPrototypeScenario() {
       await waitUntil(() => distance(backend!.snapshot().self.position, player!.entity.position) < 3, 10_000, 'companion fixture teleport')
       await waitUntil(() => messages.some(message => message.includes('我来了')), 10_000, 'natural greeting')
 
+      server.send(`tp ${companionName} ${player!.entity.position.x} ${player!.entity.position.y} ${player!.entity.position.z + 4} 0 0`)
+      await waitUntil(() => distance(backend!.snapshot().self.position, player!.entity.position) > 3.5, 10_000, 'gaze fixture position')
+      const gazeMessageStart = messages.length
+      player!.chat('看向我')
+      await waitUntil(() => messages.slice(gazeMessageStart).some(message => message.includes('看到你了')), 20_000, 'verified visual attention')
+      const self = backend.snapshot().self
+      const expectedYaw = Math.atan2(
+        -(player!.entity.position.x - self.position.x),
+        -(player!.entity.position.z - self.position.z),
+      )
+      assert.equal(yawDistance(self.yaw, expectedYaw) < 0.15, true, `gaze yaw was ${self.yaw}, expected ${expectedYaw}`)
+      const firstJournal = path.join(dataDirectory, 'events-first.jsonl')
+      const gazeEvents = readFileSync(firstJournal, 'utf8').trim().split(/\r?\n/u).map(line => JSON.parse(line) as { type: string; payload: any })
+      assert.equal(gazeEvents.some(event => event.type === 'embodiment.controller.evidence' && event.payload.stage === 'outcome_verified'), true)
+      assert.equal(gazeEvents.some(event => event.type === 'embodiment.controller.terminal' && event.payload.status === 'completed'), true)
+      ctx.record('assertion', 'visual_attention_verified', { yawError: yawDistance(self.yaw, expectedYaw) })
+
       const woodBeforeProposal = woodCount(backend.snapshot())
       player!.chat('一起收集些木头吧')
       await waitUntil(() => messages.some(message => message.includes('先观察')), 15_000, 'V2 observation response')
@@ -130,7 +147,7 @@ async function companionPrototypeScenario() {
       await waitUntil(() => secondModel.contexts[0]?.fragments.filter(fragment => fragment.section === 'retrieved_memories').length === 1, 15_000, 'startup memory retrieval')
       const messageStart = messages.length
       player!.chat('上次我们做了什么？')
-      await waitUntil(() => messages.slice(messageStart).some(message => message.includes('上次我们一起收集了木材')), 20_000, 'cross-session memory answer')
+      await waitUntil(() => messages.slice(messageStart).some(message => message.includes('上次我们一起开始收集木材')), 20_000, 'cross-session memory answer')
       assert.equal(second.debug.snapshot().decision?.retrievedMemoryIds.includes(memories[0]!.id), true)
       ctx.record('assertion', 'restart_memory_verified', { memoryId: memories[0]!.id, debug: second.debug.snapshot() })
     },
@@ -286,6 +303,7 @@ async function connectBot(name: string): Promise<Bot> {
 function lifecycleType(event: BackendEventEnvelope): string | undefined { return event.kind === 'lifecycle' ? (event.payload as BackendLifecyclePayload).type : undefined }
 function woodCount(snapshot: ReturnType<MinecraftBackend['snapshot']>): number { return snapshot.inventory.slots.filter(slot => slot.itemName.endsWith('_log') || slot.itemName.endsWith('_stem')).reduce((sum, slot) => sum + slot.count, 0) }
 function distance(left: { x: number; y: number; z: number }, right: { x: number; y: number; z: number }): number { return Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z) }
+function yawDistance(left: number, right: number): number { const delta = Math.abs(left - right) % (Math.PI * 2); return Math.min(delta, Math.PI * 2 - delta) }
 async function waitFor(events: BackendEventEnvelope[], predicate: (event: BackendEventEnvelope) => boolean, description: string, timeout = 30_000) { return waitUntil(() => events.find(predicate), timeout, description) }
 async function waitUntil<T>(predicate: () => T | undefined | false | Promise<T | undefined | false>, timeoutMs: number, description: string): Promise<T> { const start = Date.now(); while (Date.now() - start < timeoutMs) { const value = await predicate(); if (value) return value; await delay(25) } throw new Error(`Timed out waiting for ${description}`) }
 function delay(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)) }
