@@ -69,9 +69,10 @@ export class VisualAttentionController {
     const initial = this.#resolveTarget(plan, step.targetHandle)
     if (!initial) return result('failed', 'stale_grounded_target')
 
+    const operationSignal = AbortSignal.any([signal, AbortSignal.timeout(step.maxDurationMs)])
     const deadline = this.#now().getTime() + step.maxDurationMs
     const ensureCurrent = () => {
-      if (signal.aborted) throw abortError(signal.reason)
+      if (operationSignal.aborted) throw abortError(operationSignal.reason)
       const scope = this.#scope()
       if (scope.worldId !== plan.worldId || scope.epoch !== plan.epoch) throw new ControllerFailure('scope_changed')
       if (this.#now().getTime() >= deadline) throw new ControllerFailure('controller_deadline')
@@ -82,7 +83,7 @@ export class VisualAttentionController {
     const command = async (yaw: number, pitch: number) => {
       ensureCurrent()
       if (evidence.every(item => item.stage !== 'commanded')) evidence.push(this.#evidence('commanded', plan, 'gaze_commanded'))
-      await this.#motor.look(normalizeYaw(yaw), clampPitch(pitch), signal)
+      await this.#motor.look(normalizeYaw(yaw), clampPitch(pitch), operationSignal)
       lookSamples++
     }
 
@@ -127,10 +128,15 @@ export class VisualAttentionController {
       })
       return result('completed', 'visual_attention_verified', observed)
     } catch (error) {
-      if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+      if (signal.aborted) {
         this.#motor.releaseAll()
         return result('cancelled', 'controller_cancelled')
       }
+      if (operationSignal.aborted || (error instanceof DOMException && error.name === 'TimeoutError')) {
+        this.#motor.releaseAll()
+        return result('failed', 'controller_deadline')
+      }
+      if (error instanceof DOMException && error.name === 'AbortError') return result('failed', 'motor_aborted')
       if (error instanceof ControllerFailure) return result('failed', error.code)
       return result('failed', 'motor_failed')
     }

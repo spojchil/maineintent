@@ -81,6 +81,31 @@ test('cancellation releases body input and never reports verified attention', as
   assert.equal(result.evidence.some(item => item.stage === 'outcome_verified'), false)
 })
 
+test('controller deadline aborts a stalled motor primitive and fails without outcome evidence', async () => {
+  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+  const perception = new FakePerception(pose, [{
+    entityKey: 'entity-alex', type: 'player', username: 'Alex', position: { x: 3, y: 64, z: -5 }, height: 1.8,
+  }])
+  const { store, handle } = grounded({
+    kind: 'entity', entityKey: 'entity-alex', type: 'player', username: 'Alex', position: { x: 3, y: 64, z: -5 },
+  })
+  let releases = 0
+  const stalled: MinecraftMotorDriverApi = {
+    look: async (_yaw, _pitch, signal) => new Promise<void>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+    }),
+    dig: async () => { throw new Error('not used') },
+    releaseAll: () => { releases++ },
+  }
+  const input = plan(handle)
+  input.steps[0].maxDurationMs = 10
+  const result = await controller(store, perception, stalled).execute({ plan: input, signal: new AbortController().signal })
+  assert.equal(result.status, 'failed')
+  assert.equal(result.reasonCode, 'controller_deadline')
+  assert.equal(releases, 1)
+  assert.equal(result.evidence.some(item => item.stage === 'outcome_verified'), false)
+})
+
 class FakePerception implements PerceptionPort {
   revision_ = 1
   constructor(
