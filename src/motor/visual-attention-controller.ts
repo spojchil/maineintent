@@ -16,7 +16,11 @@ const FOCUS_HALF_ANGLE = (4 * Math.PI) / 180
 const MAX_YAW_SAMPLE = (15 * Math.PI) / 180
 const MAX_PITCH_SAMPLE = (12 * Math.PI) / 180
 const AIM_TOLERANCE = (1.5 * Math.PI) / 180
-const SCAN_OFFSETS = [-Math.PI / 4, Math.PI / 4, -Math.PI / 2, Math.PI / 2, Math.PI] as const
+/** One continuous leftward sweep; avoids robotic back-and-forth turns while covering 360°. */
+const SCAN_OFFSETS = [
+  -Math.PI / 4, -Math.PI / 2, -(Math.PI * 3) / 4, -Math.PI,
+  (Math.PI * 3) / 4, Math.PI / 2, Math.PI / 4, 0,
+] as const
 
 export class VisualAttentionController {
   readonly #targets: GroundedTargetResolver
