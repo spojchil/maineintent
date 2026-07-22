@@ -166,7 +166,9 @@ interface PerceptionEvidence {
 interface Vec3Value { x: number; y: number; z: number }
 interface BlockPosition { x: number; y: number; z: number }
 
-interface RelativePosition {
+type RelativePosition = [right: number, up: number, forward: number]
+
+interface RelativeLocationSummary {
   direction: 'front' | 'front_left' | 'left' | 'back_left' | 'back' | 'back_right' | 'right' | 'front_right' | 'around' | 'unknown'
   vertical: 'above' | 'level' | 'below' | 'unknown'
   distanceBand: 'touching' | 'near' | 'medium' | 'far' | 'unknown'
@@ -181,7 +183,11 @@ type VisibilityProofSummary = Pick<VisibilityProof,
   'result' | 'sampledPoints' | 'visiblePoints' | 'accumulatedAttenuation'>
 ```
 
-精确坐标只在 driver 物理/协议编码、Perception 几何计算、由合法观察建立的 Epistemic Map 和已授权 Controller 的 scoped spatial resolution 内使用。Grounding 输出 opaque handle，普通模型上下文只使用合法 Information Read、`RelativePosition` 与 opaque context ref；Controller 可以为已选对象解析 `BlockPosition`，但不能搜索其他坐标或把实现值回流为认知事实。
+`RelativePosition` 是模型侧默认的空间表示。原点是该次 Read 捕获时玩家的脚部位置；`right/forward` 由当时身体 yaw 定义，`up` 始终与世界竖直轴一致，不随 pitch 旋转；实体使用脚部锚点，方块使用其方块坐标锚点。公开值默认量化到 0.5 格，并由包含它的 `readId + informationRevision + observedAt/validUntil` 绑定观察帧。转身、移动或来源 revision 改变后，新投影会使旧 ref 失效，不能把不同观察帧的相对坐标直接拼接成地图。
+
+这种数值表示用于弥补纯方向词对几何关系描述不准的问题，同时避免持续传输图像。`RelativeLocationSummary`、`distanceBand` 等枚举可以作为低成本摘要保留，但不是几何事实的唯一载体。相对坐标只描述已通过感知边界的当前证据：模型用它比较和理解候选，用同项签发的 opaque context ref 选择对象；不得把相对坐标提交为 selector 或动作目标。
+
+绝对坐标只在 driver 物理/协议编码、Perception 几何计算、由合法观察建立的 Epistemic Map 和已授权 Controller 的 scoped spatial resolution 内使用。Grounding 输出 opaque handle，普通模型上下文只使用合法 Information Read、`RelativePosition` 与 opaque context ref；Controller 可以为已选对象解析 `BlockPosition`，但不能搜索其他坐标或把实现值回流为认知事实。
 
 ## 6. 虚拟第一人称视口
 
@@ -293,7 +299,7 @@ interface EntityObservation {
 }
 ```
 
-模型默认不需要协议 entity ID 或精确坐标。`entityKey` 是会话内稳定引用；玩家身份映射由 Backend 的已知玩家表提供，但只有可见、聊天或共享交互时进入观察。
+模型默认不需要协议 entity ID 或绝对坐标。它获得由当前观察帧约束的量化 `relativePosition`，并用 opaque context ref 选择目标。`entityKey` 只在内部作为会话内稳定引用；玩家身份映射由 Backend 的已知玩家表提供，但只有可见、聊天或共享交互时进入观察。
 
 ### 8.2 包围盒多点采样
 
@@ -360,7 +366,7 @@ interface BlockObservation {
 }
 ```
 
-只有 Grounding 后的内部交互计划确需精确定位时才保留 position；给模型的普通场景使用相对方向、距离带、聚类和 opaque ref，减少坐标幻觉与上下文体积。
+只有 Grounding 后的内部交互计划确需精确定位时才保留绝对 `position`；给模型的普通场景使用量化相对坐标、方向/距离摘要、聚类和 opaque ref，在保留空间精度的同时限制上下文体积与越权查询。
 
 ### 9.2 候选生成
 

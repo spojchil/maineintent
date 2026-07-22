@@ -40,6 +40,7 @@ export class BackendPerceptionPort implements PerceptionPort {
     return this.backend.observationSource().listTrackedEntities()
       .filter((entity) => entity.entityKey !== selfEntityKey)
       .map((entity) => ({
+        entityKey: entity.entityKey,
         type: entity.type,
         ...(entity.name ? { name: entity.name } : {}),
         ...(entity.username ? { username: entity.username } : {}),

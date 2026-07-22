@@ -5,6 +5,7 @@ import type {
   InformationInvalidationEvent,
   InformationReferenceIssueRequest,
   InformationReferenceIssuer,
+  ResolvedInformationReference,
   InformationScopeSnapshot,
   InformationSelectorRef,
 } from './contracts/index.js'
@@ -105,6 +106,36 @@ export class InformationRefStore {
          stored.screenRevision !== input.scope.screenRevision)) return undefined
     if (input.acceptedKinds && !input.acceptedKinds.includes(stored.kind)) return undefined
     return cloneBoundedJson(stored.payload, this.#maxPayloadBytes, 'reference payload') as Payload
+  }
+
+  resolveById<Payload>(input: {
+    id: string
+    principalId: string
+    grant: InformationGrant
+    scope: InformationScopeSnapshot
+    acceptedKinds?: readonly string[]
+  }): ResolvedInformationReference<Payload> | undefined {
+    const stored = this.#entries.get(input.id)
+    if (!stored) return undefined
+    if (isExpired(stored.ref.validUntil, this.#now())) {
+      this.#entries.delete(input.id)
+      return undefined
+    }
+    if (stored.principalId !== input.principalId ||
+        stored.grantId !== input.grant.id ||
+        stored.audience !== input.grant.audience ||
+        stored.ref.connectionEpoch !== input.scope.connectionEpoch ||
+        stored.ref.worldId !== input.scope.worldId ||
+        stored.dimension !== input.scope.dimension) return undefined
+    if (stored.ref.screenInstanceId !== undefined &&
+        (stored.ref.screenInstanceId !== input.scope.screenInstanceId ||
+         stored.screenRevision !== input.scope.screenRevision)) return undefined
+    if (input.acceptedKinds && !input.acceptedKinds.includes(stored.kind)) return undefined
+    return {
+      ref: structuredClone(stored.ref),
+      kind: stored.kind,
+      payload: cloneBoundedJson(stored.payload, this.#maxPayloadBytes, 'reference payload') as Payload,
+    }
   }
 
   invalidate(event: InformationInvalidationEvent): void {

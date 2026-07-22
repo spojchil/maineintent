@@ -154,6 +154,9 @@ test('runtime signs provider references and resolves them only for declared targ
     : undefined
   assert.ok(ref)
 
+  assert.deepEqual(runtime.resolveContextReference<{ slot: number }>(caller, ref.id, ['item'])?.payload, { slot: 2 })
+  assert.equal(runtime.resolveContextReference(caller, ref.id, ['viewport.block']), undefined)
+
   const tooltipRead = await runtime.query(caller, {
     interfaceId: 'item_tooltip_information',
     operation: 'read',
@@ -172,6 +175,7 @@ test('runtime signs provider references and resolves them only for declared targ
     selector: ref,
   }, new AbortController().signal)
   assert.equal('code' in stale ? stale.code : undefined, 'invalid_selector')
+  assert.equal(runtime.resolveContextReference(caller, ref.id, ['item']), undefined)
 
   const wrongTarget = await runtime.query(caller, {
     interfaceId: 'inventory_information',

@@ -4,48 +4,75 @@ import type {
   ProviderAvailability, ProviderReadRequest, ProviderReadResult,
 } from '../contracts/index.js'
 import {
-  raycastLookedAtBlock, standingOnBlock, viewRelativeOffset, visibleBlocks, visibleEntities,
+  raycastLookedAtBlock, standingOnBlock, viewRelativePosition, visibleBlocks, visibleEntities,
   type PerceptionPort,
 } from '../source-ports/perception.js'
 
 export interface ViewportValues {
-  standingOnBlock: { name: string } | null
-  lookedAtBlock: { name: string; distance: number } | null
+  standingOnBlock: { ref: string; name: string; relativePosition: [number, number, number] } | null
+  lookedAtBlock: { ref: string; name: string; distance: number; relativePosition: [number, number, number] } | null
   visibleEntities: Array<{
+    ref: string
     type: string
     name?: string
     username?: string
     distanceBand: 'very_near' | 'near' | 'medium' | 'far'
     direction: 'ahead' | 'right' | 'behind' | 'left'
+    relativePosition: [number, number, number]
   }>
-  /** Each tuple is [right, up, forward, name] in the current view-relative frame. */
-  visibleBlocks: { blocks: Array<[number, number, number, string]>; truncated: boolean }
+  visibleBlocks: {
+    blocks: Array<{ ref: string; relativePosition: [number, number, number]; name: string }>
+    truncated: boolean
+  }
 }
 
-const standingOnBlockSchema = z.object({ name: z.string().min(1) }).nullable()
-const lookedAtBlockSchema = z.object({ name: z.string().min(1), distance: z.number().min(0) }).nullable()
+export type ViewportGroundingPayload =
+  | { kind: 'block'; name: string; position: { x: number; y: number; z: number }; evidenceIds: string[] }
+  | {
+      kind: 'entity'
+      entityKey: string
+      type: string
+      name?: string
+      username?: string
+      position: { x: number; y: number; z: number }
+      evidenceIds: string[]
+    }
+
+const relativePositionSchema = z.tuple([z.number(), z.number(), z.number()])
+const standingOnBlockSchema = z.object({
+  ref: z.string().min(1), name: z.string().min(1), relativePosition: relativePositionSchema,
+}).nullable()
+const lookedAtBlockSchema = z.object({
+  ref: z.string().min(1), name: z.string().min(1), distance: z.number().min(0), relativePosition: relativePositionSchema,
+}).nullable()
 const visibleEntitySchema = z.array(z.object({
+  ref: z.string().min(1),
   type: z.string().min(1),
   name: z.string().min(1).optional(),
   username: z.string().min(1).optional(),
   distanceBand: z.enum(['very_near', 'near', 'medium', 'far']),
   direction: z.enum(['ahead', 'right', 'behind', 'left']),
+  relativePosition: relativePositionSchema,
 }))
 const visibleBlocksSchema = z.object({
-  blocks: z.array(z.tuple([z.number(), z.number(), z.number(), z.string().min(1)])),
+  blocks: z.array(z.object({
+    ref: z.string().min(1),
+    relativePosition: relativePositionSchema,
+    name: z.string().min(1),
+  })),
   truncated: z.boolean(),
 })
 
 const MAX_LOOK_DISTANCE = 4.5
 const MAX_ENTITY_DISTANCE = 32
-const MAX_ENTITIES = 10
+const MAX_ENTITIES = 8
 const VIEW_HALF_ANGLE = (45 * Math.PI) / 180
 const VISIBLE_BLOCKS_OPTIONS = {
   horizontalRadius: 32,
   verticalRadius: 20,
   maxDistance: 32,
   halfAngle: VIEW_HALF_ANGLE,
-  limit: 24,
+  limit: 20,
 }
 
 /** Coarse first-person projection; raw tracked entities and loaded blocks never cross this API. */
@@ -59,23 +86,23 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
   readonly definition: InformationProviderDefinition<ViewportValues> = {
     id: 'viewport_information',
     description: '站立不动时的第一人称近似观察：脚下反馈、准星目标、可见实体和可见方块表面',
-    schemaRevision: 'viewport-information:5',
+    schemaRevision: 'viewport-information:7',
     audiences: ['companion'] as const,
     fields: {
       standingOnBlock: {
-        description: '由当前脚下位置推断的方块；无法形成证据时为 null',
+        description: '由当前脚下位置推断的方块；含不透明引用和量化的[右,上,前]观察相对坐标，无法形成证据时为 null',
         valueSchema: standingOnBlockSchema, valueType: 'object', precision: 'inferred', sourceKinds: ['viewport_projection'],
       },
       lookedAtBlock: {
-        description: '准星精确射线首先命中的可见方块；约受原版 4.5 格交互距离约束',
+        description: '准星精确射线首先命中的可见方块；含不透明引用和量化的[右,上,前]观察相对坐标，约受原版 4.5 格交互距离约束',
         valueSchema: lookedAtBlockSchema, valueType: 'object', precision: 'inferred', sourceKinds: ['viewport_projection'],
       },
       visibleEntities: {
-        description: '通过视锥与多点遮挡验证的当前可见实体；不包含仅被协议追踪的墙后或背后实体',
+        description: '通过视锥与多点遮挡验证的当前可见实体；含不透明引用和量化的[右,上,前]观察相对坐标，不包含仅被协议追踪的墙后或背后实体',
         valueSchema: visibleEntitySchema, valueType: 'array', precision: 'inferred', sourceKinds: ['viewport_projection'],
       },
       visibleBlocks: {
-        description: '当前视野内通过粗略遮挡验证的方块表面；每项为 [右,上,前,名称] 视角局部四元组，可能截断',
+        description: '当前视野内通过粗略遮挡验证的方块表面；每项含不透明引用、[右,上,前] 相对位置和名称，可能截断',
         valueSchema: visibleBlocksSchema, valueType: 'object', precision: 'inferred', sourceKinds: ['viewport_projection'],
         notes: '透明材质依据客户端 hint 保守近似；不是像素级渲染结果',
       },
@@ -94,31 +121,84 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
     signal: AbortSignal,
   ): Promise<ProviderReadResult<ViewportValues, never>> {
     const revision = this.#revisionFor()
+    const pose = this.#port.selfPose()
+    const evidenceIds = [`viewport_${context.scope.connectionEpoch}_${revision}`]
+    const validUntil = new Date(Date.parse(context.now) + 15_000).toISOString()
     const values: Partial<ViewportValues> = {}
-    if (request.fields.includes('standingOnBlock')) values.standingOnBlock = standingOnBlock(this.#port)
-    if (request.fields.includes('lookedAtBlock')) values.lookedAtBlock = raycastLookedAtBlock(this.#port, MAX_LOOK_DISTANCE)
+    if (request.fields.includes('standingOnBlock')) {
+      const block = standingOnBlock(this.#port)
+      values.standingOnBlock = block ? {
+        ref: this.#issueBlockRef(context, revision, validUntil, evidenceIds, block).id,
+        name: block.name,
+        relativePosition: viewRelativePosition(pose, block.position),
+      } : null
+    }
+    if (request.fields.includes('lookedAtBlock')) {
+      const block = raycastLookedAtBlock(this.#port, MAX_LOOK_DISTANCE)
+      values.lookedAtBlock = block ? {
+        ref: this.#issueBlockRef(context, revision, validUntil, evidenceIds, block).id,
+        name: block.name,
+        distance: block.distance,
+        relativePosition: viewRelativePosition(pose, block.position),
+      } : null
+    }
     if (request.fields.includes('visibleEntities')) {
-      values.visibleEntities = visibleEntities(this.#port, MAX_ENTITY_DISTANCE, VIEW_HALF_ANGLE, MAX_ENTITIES)
+      values.visibleEntities = visibleEntities(this.#port, MAX_ENTITY_DISTANCE, VIEW_HALF_ANGLE, MAX_ENTITIES).map(entity => ({
+        ref: context.refs.issue<ViewportGroundingPayload>({
+          kind: 'viewport.entity',
+          payload: {
+            kind: 'entity', entityKey: entity.entityKey, type: entity.type,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.username ? { username: entity.username } : {}),
+            position: entity.position, evidenceIds,
+          },
+          allowedInterfaces: ['viewport_information'],
+          basedOnInformationRevision: revision,
+          validUntil,
+        }).id,
+        type: entity.type,
+        ...(entity.name ? { name: entity.name } : {}),
+        ...(entity.username ? { username: entity.username } : {}),
+        distanceBand: entity.distanceBand,
+        direction: entity.direction,
+        relativePosition: viewRelativePosition(pose, entity.position),
+      }))
     }
     if (request.fields.includes('visibleBlocks')) {
-      const pose = this.#port.selfPose()
       const result = await visibleBlocks(this.#port, VISIBLE_BLOCKS_OPTIONS, signal)
       values.visibleBlocks = {
-        blocks: result.blocks.map((block): [number, number, number, string] => {
-          const [right, up, forward] = viewRelativeOffset(pose, block.offset)
-          return [right, up, forward, block.name]
-        }),
+        blocks: result.blocks.map(block => ({
+          ref: this.#issueBlockRef(context, revision, validUntil, evidenceIds, block).id,
+          relativePosition: viewRelativePosition(pose, block.position),
+          name: block.name,
+        })),
         truncated: result.truncated,
       }
     }
     return {
       informationRevision: revision, values, unavailable: [],
       source: {
-        kind: 'viewport_projection', adapterRevision: 'viewport-provider.v2', sourceRevision: revision,
+        kind: 'viewport_projection', adapterRevision: 'viewport-provider.v3', sourceRevision: revision,
         acquisition: 'current_perception',
       },
-      observedAt: context.now, evidenceIds: [],
+      observedAt: context.now, validUntil, evidenceIds,
     }
+  }
+
+  #issueBlockRef(
+    context: InformationProviderContext,
+    revision: number,
+    validUntil: string,
+    evidenceIds: string[],
+    block: { name: string; position: { x: number; y: number; z: number } },
+  ) {
+    return context.refs.issue<ViewportGroundingPayload>({
+      kind: 'viewport.block',
+      payload: { kind: 'block', name: block.name, position: block.position, evidenceIds },
+      allowedInterfaces: ['viewport_information'],
+      basedOnInformationRevision: revision,
+      validUntil,
+    })
   }
 
   #revisionFor(): number {

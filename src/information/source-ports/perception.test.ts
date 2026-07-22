@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { setImmediate } from 'node:timers'
 import { test } from 'node:test'
 import {
-  raycastLookedAtBlock, standingOnBlock, viewRelativeOffset, visibleBlocks, visibleEntities,
+  raycastLookedAtBlock, standingOnBlock, viewRelativePosition, visibleBlocks, visibleEntities,
   type PerceptionBlock, type PerceptionEntityCandidate, type PerceptionPort, type PerceptionPose,
 } from './perception.js'
 
@@ -77,9 +77,9 @@ test('visibleBlocks yields to cancellation during a large scan', async () => {
 
 test('visibleEntities excludes targets behind the view or an opaque wall', () => {
   const entities: PerceptionEntityCandidate[] = [
-    { type: 'player', username: 'Alex', position: { x: -2, y: 64, z: -4 }, height: 1.8 },
-    { type: 'zombie', position: { x: 0, y: 64, z: -8 }, height: 1.95 },
-    { type: 'cow', position: { x: 0, y: 64, z: 3 }, height: 1.4 },
+    { entityKey: 'entity-alex', type: 'player', username: 'Alex', position: { x: -2, y: 64, z: -4 }, height: 1.8 },
+    { entityKey: 'entity-zombie', type: 'zombie', position: { x: 0, y: 64, z: -8 }, height: 1.95 },
+    { entityKey: 'entity-cow', type: 'cow', position: { x: 0, y: 64, z: 3 }, height: 1.4 },
   ]
   const blocks = new Map<string, PerceptionBlock | 'unloaded'>([
     ['0,64,-3', opaque('wall')], ['0,65,-3', opaque('wall')], ['0,66,-3', opaque('wall')],
@@ -88,9 +88,9 @@ test('visibleEntities excludes targets behind the view or an opaque wall', () =>
   assert.deepEqual(result.map(entity => entity.username ?? entity.type), ['Alex'])
 })
 
-test('viewRelativeOffset rotates world axes into right/up/forward coordinates', () => {
-  assert.deepEqual(viewRelativeOffset(POSE, { x: 2, y: 1, z: -3 }), [2, 1, 3])
-  assert.deepEqual(viewRelativeOffset({ ...POSE, yaw: -Math.PI / 2 }, { x: 3, y: 0, z: 0 }), [0, 0, 3])
+test('viewRelativePosition is pose-relative and quantized rather than a world coordinate', () => {
+  assert.deepEqual(viewRelativePosition(POSE, { x: -2.24, y: 64.26, z: -3.76 }), [-2, 0.5, 4])
+  assert.deepEqual(viewRelativePosition({ ...POSE, yaw: -Math.PI / 2 }, { x: 3.24, y: 64, z: 0.24 }), [0, 0, 3])
 })
 
 test('raycast and standingOnBlock use visible blocks rather than air', () => {
@@ -98,6 +98,6 @@ test('raycast and standingOnBlock use visible blocks rather than air', () => {
     ['0,65,-3', transparent('glass')], ['0,63,0', opaque('grass_block')],
   ]))
   assert.equal(raycastLookedAtBlock(port, 4.5)?.name, 'glass')
-  assert.deepEqual(standingOnBlock(port), { name: 'grass_block' })
+  assert.deepEqual(standingOnBlock(port), { name: 'grass_block', position: { x: 0, y: 63, z: 0 } })
   assert.equal(standingOnBlock(new FakePerceptionPort(POSE)), null)
 })

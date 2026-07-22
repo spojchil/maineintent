@@ -23,11 +23,19 @@ function air(): PerceptionBlock { return { name: 'air', visible: false, occludes
 function opaque(name: string): PerceptionBlock { return { name, visible: true, occludes: true } }
 
 function context() {
+  let refIndex = 0
   return {
     now: new Date().toISOString(),
     scope: { processSessionId: 's', connectionState: 'play' as const, connectionEpoch: 1, uiRevision: 0, capturedAt: new Date().toISOString() },
     caller: { audience: 'companion' as const, purpose: 'companion_context' as const },
-    refs: { issue: () => { throw new Error('not used') } },
+    refs: { issue: (request: { basedOnInformationRevision: number; validUntil?: string }) => ({
+      protocol: 'mineintent.information-selector-ref.v1' as const,
+      id: `iref_test_${++refIndex}`,
+      interfaceId: 'viewport_information' as const,
+      connectionEpoch: 1,
+      basedOnInformationRevision: request.basedOnInformationRevision,
+      ...(request.validUntil ? { validUntil: request.validUntil } : {}),
+    }) },
   }
 }
 
@@ -40,19 +48,23 @@ test('viewport provider satisfies the provider contract', async () => {
   })
 })
 
-test('viewport provider emits view-relative visible block tuples', async () => {
+test('viewport provider emits opaque references with view-relative visible blocks', async () => {
   const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', opaque('stone')]])
   const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
   const result = await provider.read(context(), { fields: ['visibleBlocks'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.visibleBlocks?.truncated, false)
-  assert.deepEqual(result.values.visibleBlocks?.blocks[0], [0, 1, 3, 'stone'])
+  assert.deepEqual(result.values.visibleBlocks?.blocks[0], {
+    ref: 'iref_test_1', relativePosition: [0, 1, 3], name: 'stone',
+  })
 })
 
 test('viewport provider reports the inferred block directly underfoot', async () => {
   const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,63,0', opaque('grass_block')]])
   const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
   const result = await provider.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)
-  assert.deepEqual(result.values.standingOnBlock, { name: 'grass_block' })
+  assert.deepEqual(result.values.standingOnBlock, {
+    ref: 'iref_test_1', name: 'grass_block', relativePosition: [0, -1, 0],
+  })
 })
 
 test('viewport provider reports standingOnBlock as null for unloaded or air', async () => {
@@ -67,6 +79,7 @@ test('viewport provider finds the nearest visible block along the sightline', as
   const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
   const result = await provider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.lookedAtBlock?.name, 'stone')
+  assert.deepEqual(result.values.lookedAtBlock?.relativePosition, [0, 1, 3])
 })
 
 test('viewport provider reports null for air or unloaded sightlines', async () => {
@@ -80,9 +93,9 @@ test('viewport provider reports null for air or unloaded sightlines', async () =
 
 test('viewport provider publishes only entities that pass FOV and occlusion', async () => {
   const entities: PerceptionEntityCandidate[] = [
-    { type: 'player', username: 'Alex', position: { x: -2, y: 64, z: -4 }, height: 1.8 },
-    { type: 'zombie', position: { x: 0, y: 64, z: -10 }, height: 1.95 },
-    { type: 'cow', position: { x: 0, y: 64, z: 3 }, height: 1.4 },
+    { entityKey: 'entity-alex', type: 'player', username: 'Alex', position: { x: -2, y: 64, z: -4 }, height: 1.8 },
+    { entityKey: 'entity-zombie', type: 'zombie', position: { x: 0, y: 64, z: -10 }, height: 1.95 },
+    { entityKey: 'entity-cow', type: 'cow', position: { x: 0, y: 64, z: 3 }, height: 1.4 },
   ]
   const wall = new Map<string, PerceptionBlock | 'unloaded'>([
     ['0,64,-3', opaque('stone')], ['0,65,-3', opaque('stone')], ['0,66,-3', opaque('stone')],
@@ -90,6 +103,7 @@ test('viewport provider publishes only entities that pass FOV and occlusion', as
   const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, wall, entities))
   const result = await provider.read(context(), { fields: ['visibleEntities'], page: { limit: 1 } }, new AbortController().signal)
   assert.deepEqual(result.values.visibleEntities?.map(entity => entity.username ?? entity.type), ['Alex'])
+  assert.deepEqual(result.values.visibleEntities?.[0]?.relativePosition, [-2, 0, 4])
 })
 
 test('viewport revision changes when the perception source changes without a pose change', () => {

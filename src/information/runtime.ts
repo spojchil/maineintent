@@ -17,6 +17,7 @@ import {
   type InformationQueryRequest,
   type InformationReadResult,
   type InformationRequestError,
+  type ResolvedInformationReference,
   type InformationScopeSnapshot,
   type InformationSelectorRef,
   type InformationToolResult,
@@ -163,6 +164,25 @@ export class InformationRuntime {
   invalidate(event: InformationInvalidationEvent): void {
     this.#refStore.invalidate(event)
     this.#cursorStore.invalidate(event)
+  }
+
+  resolveContextReference<Payload>(
+    caller: TrustedInformationCaller,
+    id: string,
+    acceptedKinds?: readonly string[],
+  ): ResolvedInformationReference<Payload> | undefined {
+    const scope = this.#scopeSource.capture()
+    const grant = this.#accessPolicy.resolve(caller.grantId, caller.principalId)
+    if (!grant || grant.purpose !== caller.purpose) return undefined
+    const resolved = this.#refStore.resolveById<Payload>({
+      id,
+      principalId: caller.principalId,
+      grant,
+      scope,
+      ...(acceptedKinds ? { acceptedKinds } : {}),
+    })
+    if (!resolved || !this.#selectorSourceIsCurrent(caller, grant, resolved.ref, scope)) return undefined
+    return resolved
   }
 
   #help(

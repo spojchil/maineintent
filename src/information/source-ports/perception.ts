@@ -16,6 +16,7 @@ export interface PerceptionBlock {
 }
 
 export interface PerceptionEntityCandidate {
+  entityKey: string
   type: string
   name?: string
   username?: string
@@ -33,9 +34,11 @@ export interface PerceptionPort {
   nearbyEntities(): readonly PerceptionEntityCandidate[]
 }
 
-export interface LookedAtBlock { name: string; distance: number }
+export interface LookedAtBlock { name: string; distance: number; position: Point3 }
 
 export interface VisibleEntity {
+  entityKey: string
+  position: Point3
   type: string
   name?: string
   username?: string
@@ -91,10 +94,10 @@ export function raycastLookedAtBlock(port: PerceptionPort, maxDistance: number):
   const direction = lookDirection(pose.yaw, pose.pitch)
   const eye: Point3 = { x: pose.position.x, y: pose.position.y + EYE_HEIGHT, z: pose.position.z }
   const hit = firstVisibleHit(port, eye, direction, maxDistance)
-  return hit === 'unloaded' || hit === null ? null : { name: hit.name, distance: hit.distance }
+  return hit === 'unloaded' || hit === null ? null : { name: hit.name, distance: hit.distance, position: hit.voxel }
 }
 
-export interface VisibleBlock { offset: Point3; distance: number; name: string }
+export interface VisibleBlock { position: Point3; offset: Point3; distance: number; name: string }
 
 export interface VisibleBlocksOptions {
   horizontalRadius: number
@@ -141,7 +144,7 @@ export async function visibleBlocks(
         if (block === 'unloaded' || !block.visible) continue
         if (!hasExposedFace(port, voxel)) continue
         if (!isVisibleFromEye(port, eye, voxel, distance)) continue
-        candidates.push({ offset: { x: dx, y: dy, z: dz }, distance, name: block.name })
+        candidates.push({ position: voxel, offset: { x: dx, y: dy, z: dz }, distance, name: block.name })
       }
     }
   }
@@ -194,6 +197,8 @@ export function visibleEntities(
     }))
     if (!visible) return []
     return [{
+      entityKey: entity.entityKey,
+      position: entity.position,
       type: entity.type,
       ...(entity.name ? { name: entity.name } : {}),
       ...(entity.username ? { username: entity.username } : {}),
@@ -210,26 +215,47 @@ function lineIsClear(port: PerceptionPort, origin: Point3, target: Point3): bool
   return firstOccludingHit(port, origin, normalize(delta, distance), Math.max(0, distance - STEP)) === null
 }
 
-export function standingOnBlock(port: PerceptionPort): { name: string } | null {
+export function standingOnBlock(port: PerceptionPort): { name: string; position: Point3 } | null {
   const pose = port.selfPose()
-  const below = port.blockAt({
+  const position = {
     x: Math.floor(pose.position.x), y: Math.floor(pose.position.y) - 1, z: Math.floor(pose.position.z),
-  })
-  return below === 'unloaded' || !below.visible ? null : { name: below.name }
+  }
+  const below = port.blockAt(position)
+  return below === 'unloaded' || !below.visible ? null : { name: below.name, position }
 }
 
-/** Converts a world-axis voxel offset to coarse [right, up, forward] view-relative coordinates. */
-export function viewRelativeOffset(pose: PerceptionPose, offset: Point3): [number, number, number] {
-  const forward = lookDirection(pose.yaw, 0)
+/**
+ * Converts a world position to a body-local [right, up, forward] observation coordinate.
+ * The vertical axis stays aligned with the world while yaw defines right/forward. Values are
+ * quantized because this is a perceptual aid, not an exact coordinate channel.
+ */
+export function viewRelativePosition(
+  pose: PerceptionPose,
+  position: Point3,
+  quantum = 0.5,
+): [number, number, number] {
+  return viewRelativeVector(pose.yaw, {
+    x: position.x - pose.position.x,
+    y: position.y - pose.position.y,
+    z: position.z - pose.position.z,
+  }, quantum)
+}
+
+function viewRelativeVector(yaw: number, offset: Point3, quantum: number): [number, number, number] {
+  const forward = lookDirection(yaw, 0)
   const right = { x: -forward.z, z: forward.x }
   return [
-    roundTenth(offset.x * right.x + offset.z * right.z),
-    offset.y,
-    roundTenth(offset.x * forward.x + offset.z * forward.z),
+    roundTo(offset.x * right.x + offset.z * right.z, quantum),
+    roundTo(offset.y, quantum),
+    roundTo(offset.x * forward.x + offset.z * forward.z, quantum),
   ]
 }
 
 function dot(left: Point3, right: Point3): number { return left.x * right.x + left.y * right.y + left.z * right.z }
 function normalize(value: Point3, length: number): Point3 { return { x: value.x / length, y: value.y / length, z: value.z / length } }
 function sameVoxel(left: Point3, right: Point3): boolean { return left.x === right.x && left.y === right.y && left.z === right.z }
-function roundTenth(value: number): number { const rounded = Math.round(value * 10) / 10; return Object.is(rounded, -0) ? 0 : rounded }
+function roundTo(value: number, quantum: number): number {
+  if (!Number.isFinite(quantum) || quantum <= 0) throw new Error('Relative-coordinate quantum must be positive and finite')
+  const rounded = Math.round(value / quantum) * quantum
+  return Object.is(rounded, -0) ? 0 : rounded
+}

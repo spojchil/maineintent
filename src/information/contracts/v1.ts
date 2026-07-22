@@ -313,6 +313,12 @@ export interface InformationReferenceIssuer {
   issue<Payload>(request: InformationReferenceIssueRequest<Payload>): InformationSelectorRef
 }
 
+export interface ResolvedInformationReference<Payload = unknown> {
+  ref: InformationSelectorRef
+  kind: string
+  payload: Payload
+}
+
 export interface InformationProviderContext {
   now: string
   scope: Readonly<InformationScopeSnapshot>
