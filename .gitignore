@@ -8,6 +8,8 @@ research/repos/
 __pycache__/
 *.pyc
 
+.claude/
+
 # Local Minecraft server runtime and worlds
 mcserver/.mc-server/
 mcserver/cache/
