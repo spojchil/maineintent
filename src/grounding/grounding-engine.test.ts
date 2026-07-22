@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { EmbodiedIntentEffect } from '../models/index.js'
+import type { InformationInterfaceId } from '../information/index.js'
 import type { GroundingContextReferenceResolver } from './contracts.js'
 import { GroundedReferentStore } from './grounded-store.js'
 import { GroundingEngine } from './grounding-engine.js'
@@ -10,7 +11,7 @@ const NOW = new Date('2026-07-22T00:00:00.000Z')
 test('Grounding binds a current opaque viewport ref and keeps exact position in the internal store', () => {
   const references = new FakeReferences()
   references.values.set('iref_block', {
-    ref: { connectionEpoch: 3, worldId: 'world', validUntil: '2026-07-22T00:00:15.000Z' },
+    ref: { interfaceId: 'viewport_information', connectionEpoch: 3, worldId: 'world', validUntil: '2026-07-22T00:00:15.000Z' },
     kind: 'viewport.block',
     payload: { kind: 'block', name: 'oak_log', position: { x: 4, y: 65, z: -2 }, evidenceIds: ['viewport_3_8'] },
   })
@@ -22,6 +23,7 @@ test('Grounding binds a current opaque viewport ref and keeps exact position in 
   assert.equal(result.intent.groundingStatus, 'complete')
   const referent = result.intent.referents[0]!
   assert.equal(referent.spatialKnowledge, 'known')
+  assert.deepEqual(referent.evidenceIds, ['read-viewport-1', 'viewport_3_8'])
   assert.equal('position' in (referent as unknown as Record<string, unknown>), false)
   const internal = store.resolve({
     handle: referent.handle, decisionRunId: 'run-1', effectId: 'embodied-1', worldId: 'world', epoch: 3,
@@ -50,6 +52,46 @@ test('Grounding rejects stale refs and does not infer a target from semantic wor
   assert.equal(store.size(), 0)
 })
 
+test('Grounding rejects a live ref that was not conveyed by this decision context', () => {
+  const references = new FakeReferences()
+  references.values.set('iref_other', {
+    ref: { interfaceId: 'viewport_information', connectionEpoch: 3, worldId: 'world', validUntil: '2026-07-22T00:00:15.000Z' },
+    kind: 'viewport.block',
+    payload: { kind: 'block', name: 'stone', position: { x: 1, y: 64, z: 1 }, evidenceIds: ['viewport_3_8'] },
+  })
+  const input = request(effect({ kind: 'context_ref', ref: 'iref_other' }))
+  input.context.fragments = input.context.fragments.filter(fragment => fragment.section !== 'observations')
+  assert.deepEqual(createEngine(references, new GroundedReferentStore({ now: () => NOW })).ground(input), {
+    status: 'invalid', effectId: 'embodied-1', reasonCode: 'context_ref_not_in_viewport_read',
+  })
+})
+
+test('Grounding rejects a viewport-shaped ref issued by another information interface', () => {
+  const references = new FakeReferences()
+  references.values.set('iref_block', {
+    ref: { interfaceId: 'inventory_information', connectionEpoch: 3, worldId: 'world', validUntil: '2026-07-22T00:00:15.000Z' },
+    kind: 'viewport.block',
+    payload: { kind: 'block', name: 'stone', position: { x: 1, y: 64, z: 1 }, evidenceIds: ['viewport_3_8'] },
+  })
+  assert.deepEqual(createEngine(references, new GroundedReferentStore({ now: () => NOW })).ground(
+    request(effect({ kind: 'context_ref', ref: 'iref_block' })),
+  ), { status: 'invalid', effectId: 'embodied-1', reasonCode: 'invalid_context_ref_payload' })
+})
+
+test('Grounding does not accept a ref copied into an unverified context fragment', () => {
+  const references = new FakeReferences()
+  references.values.set('iref_block', {
+    ref: { interfaceId: 'viewport_information', connectionEpoch: 3, worldId: 'world', validUntil: '2026-07-22T00:00:15.000Z' },
+    kind: 'viewport.block',
+    payload: { kind: 'block', name: 'stone', position: { x: 1, y: 64, z: 1 }, evidenceIds: ['viewport_3_8'] },
+  })
+  const input = request(effect({ kind: 'context_ref', ref: 'iref_block' }))
+  input.context.fragments.find(fragment => fragment.section === 'observations')!.source.trust = 'untrusted_content'
+  assert.deepEqual(createEngine(references, new GroundedReferentStore({ now: () => NOW })).ground(input), {
+    status: 'invalid', effectId: 'embodied-1', reasonCode: 'context_ref_not_in_viewport_read',
+  })
+})
+
 test('grounded handles are bound to decision, effect, world, epoch and expiry', () => {
   let now = NOW
   const store = new GroundedReferentStore({ now: () => now })
@@ -76,11 +118,11 @@ test('Grounding rejects a decision/context mismatch before issuing handles', () 
 })
 
 class FakeReferences implements GroundingContextReferenceResolver {
-  values = new Map<string, { ref: { connectionEpoch: number; worldId?: string; validUntil?: string }; kind: string; payload: unknown }>()
+  values = new Map<string, { ref: { interfaceId: InformationInterfaceId; connectionEpoch: number; worldId?: string; validUntil?: string }; kind: string; payload: unknown }>()
   resolveContextReference<Payload>(_caller: unknown, id: string, acceptedKinds?: readonly string[]) {
     const value = this.values.get(id)
     if (!value || (acceptedKinds && !acceptedKinds.includes(value.kind))) return undefined
-    return structuredClone(value) as { ref: { connectionEpoch: number; worldId?: string; validUntil?: string }; kind: string; payload: Payload }
+    return structuredClone(value) as { ref: { interfaceId: InformationInterfaceId; connectionEpoch: number; worldId?: string; validUntil?: string }; kind: string; payload: Payload }
   }
 }
 
@@ -95,7 +137,17 @@ function request(embodied: EmbodiedIntentEffect) {
       ref: { runId: 'run-1', worldId: 'world' },
       fragments: [{
         section: 'trigger_events',
+        source: { trust: 'player_statement', ids: ['event-1'] },
         content: { id: 'event-1', type: 'player_chat', sender: 'Alex', text: '请看向我' },
+      }, {
+        section: 'observations',
+        source: { trust: 'verified_observation', ids: ['read-viewport-1'] },
+        content: {
+          protocol: 'mineintent.information-read.v1',
+          readId: 'read-viewport-1',
+          interfaceId: 'viewport_information',
+          values: { lookedAtBlock: { ref: selectionRef(embodied), name: 'oak_log' } },
+        },
       }],
     },
     caller: {
@@ -103,6 +155,11 @@ function request(embodied: EmbodiedIntentEffect) {
       correlationId: 'run-1', decisionRunId: 'run-1',
     },
   }
+}
+
+function selectionRef(embodied: EmbodiedIntentEffect): string {
+  const selection = embodied.referents[0]?.selection
+  return selection?.kind === 'context_ref' ? selection.ref : 'unused-message-ref'
 }
 
 function effect(selection: EmbodiedIntentEffect['referents'][number]['selection']): EmbodiedIntentEffect {

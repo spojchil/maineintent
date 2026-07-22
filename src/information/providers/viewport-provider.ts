@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type {
   InformationProvider, InformationProviderContext, InformationProviderDefinition,
-  ProviderAvailability, ProviderReadRequest, ProviderReadResult,
+  ProviderAvailability, ProviderReadRequest, ProviderReadResult, ViewportObservationRefPayload,
 } from '../contracts/index.js'
 import {
   raycastLookedAtBlock, standingOnBlock, viewRelativePosition, visibleBlocks, visibleEntities,
@@ -25,18 +25,6 @@ export interface ViewportValues {
     truncated: boolean
   }
 }
-
-export type ViewportGroundingPayload =
-  | { kind: 'block'; name: string; position: { x: number; y: number; z: number }; evidenceIds: string[] }
-  | {
-      kind: 'entity'
-      entityKey: string
-      type: string
-      name?: string
-      username?: string
-      position: { x: number; y: number; z: number }
-      evidenceIds: string[]
-    }
 
 const relativePositionSchema = z.tuple([z.number(), z.number(), z.number()])
 const standingOnBlockSchema = z.object({
@@ -144,7 +132,7 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
     }
     if (request.fields.includes('visibleEntities')) {
       values.visibleEntities = visibleEntities(this.#port, MAX_ENTITY_DISTANCE, VIEW_HALF_ANGLE, MAX_ENTITIES).map(entity => ({
-        ref: context.refs.issue<ViewportGroundingPayload>({
+        ref: context.refs.issue<ViewportObservationRefPayload>({
           kind: 'viewport.entity',
           payload: {
             kind: 'entity', entityKey: entity.entityKey, type: entity.type,
@@ -192,7 +180,7 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
     evidenceIds: string[],
     block: { name: string; position: { x: number; y: number; z: number } },
   ) {
-    return context.refs.issue<ViewportGroundingPayload>({
+    return context.refs.issue<ViewportObservationRefPayload>({
       kind: 'viewport.block',
       payload: { kind: 'block', name: block.name, position: block.position, evidenceIds },
       allowedInterfaces: ['viewport_information'],

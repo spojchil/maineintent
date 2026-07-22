@@ -1,5 +1,7 @@
-import { z } from 'zod'
-import type { ViewportGroundingPayload } from '../information/providers/viewport-provider.js'
+import {
+  viewportObservationRefPayloadSchema,
+  type ViewportObservationRefPayload,
+} from '../information/contracts/index.js'
 import type { EmbodiedIntentEffect } from '../models/index.js'
 import type {
   EmbodiedGroundingResult,
@@ -14,16 +16,6 @@ import type {
   GroundingContextReferenceResolver,
 } from './contracts.js'
 import { GroundedReferentStore } from './grounded-store.js'
-
-const positionSchema = z.strictObject({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
-const viewportPayloadSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('block'), name: z.string().min(1), position: positionSchema, evidenceIds: z.array(z.string().min(1)) }),
-  z.strictObject({
-    kind: z.literal('entity'), entityKey: z.string().min(1), type: z.string().min(1),
-    name: z.string().min(1).optional(), username: z.string().min(1).optional(),
-    position: positionSchema, evidenceIds: z.array(z.string().min(1)),
-  }),
-])
 
 export class GroundingEngine {
   readonly #references: GroundingContextReferenceResolver
@@ -57,20 +49,25 @@ export class GroundingEngine {
     }> = []
     for (const referent of request.effect.referents) {
       if (referent.selection.kind === 'context_ref') {
-        const resolved = this.#references.resolveContextReference<ViewportGroundingPayload>(
+        const provenance = findObservationReference(request.context.fragments, referent.selection.ref)
+        if (!provenance || provenance.interfaceId !== 'viewport_information') {
+          return { status: 'invalid', effectId: request.effect.id, reasonCode: 'context_ref_not_in_viewport_read' }
+        }
+        const resolved = this.#references.resolveContextReference<ViewportObservationRefPayload>(
           request.caller,
           referent.selection.ref,
           ['viewport.block', 'viewport.entity'],
         )
         if (!resolved) return { status: 'invalid', effectId: request.effect.id, reasonCode: 'stale_or_forged_context_ref' }
-        const payload = viewportPayloadSchema.safeParse(resolved.payload)
-        if (!payload.success || resolved.ref.connectionEpoch !== scope.epoch || resolved.ref.worldId !== scope.worldId || !resolved.ref.validUntil) {
+        const payload = viewportObservationRefPayloadSchema.safeParse(resolved.payload)
+        if (!payload.success || resolved.ref.interfaceId !== provenance.interfaceId ||
+            resolved.ref.connectionEpoch !== scope.epoch || resolved.ref.worldId !== scope.worldId || !resolved.ref.validUntil) {
           return { status: 'invalid', effectId: request.effect.id, reasonCode: 'invalid_context_ref_payload' }
         }
         pending.push({
           role: referent.role,
           validUntil: resolved.ref.validUntil,
-          evidenceIds: [...payload.data.evidenceIds],
+          evidenceIds: [...new Set([provenance.readId, ...payload.data.evidenceIds])],
           target: payload.data.kind === 'block'
             ? { kind: 'block', name: payload.data.name, position: payload.data.position }
             : {
@@ -163,6 +160,42 @@ export class GroundingEngine {
       },
     }
   }
+}
+
+function findObservationReference(
+  fragments: GroundingRequest['context']['fragments'],
+  refId: string,
+): { readId: string; interfaceId: string } | undefined {
+  const matches: Array<{ readId: string; interfaceId: string }> = []
+  for (const fragment of fragments) {
+    if (fragment.section !== 'observations' || fragment.source.trust !== 'verified_observation' ||
+        !isRecord(fragment.content)) continue
+    const read = fragment.content
+    if (read.protocol !== 'mineintent.information-read.v1' ||
+        typeof read.readId !== 'string' || typeof read.interfaceId !== 'string' ||
+        !fragment.source.ids.includes(read.readId) || !isRecord(read.values)) continue
+    if (containsReference(read.values, refId)) {
+      matches.push({ readId: read.readId, interfaceId: read.interfaceId })
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined
+}
+
+function containsReference(value: unknown, refId: string): boolean {
+  const pending: unknown[] = [value]
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (Array.isArray(current)) pending.push(...current)
+    else if (isRecord(current)) {
+      if (current.ref === refId) return true
+      pending.push(...Object.values(current))
+    }
+  }
+  return false
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function groundExpression(

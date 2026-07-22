@@ -1,4 +1,5 @@
 import type { EmbodiedIntentEffect, SemanticGoalV1 } from '../models/index.js'
+import type { InformationInterfaceId } from '../information/contracts/index.js'
 
 export interface GroundedReferent {
   handle: string
@@ -92,7 +93,16 @@ export interface GroundingContextReferenceResolver {
     caller: GroundingCaller,
     id: string,
     acceptedKinds?: readonly string[],
-  ): { ref: { connectionEpoch: number; worldId?: string; validUntil?: string }; kind: string; payload: Payload } | undefined
+  ): {
+    ref: {
+      interfaceId: InformationInterfaceId
+      connectionEpoch: number
+      worldId?: string
+      validUntil?: string
+    }
+    kind: string
+    payload: Payload
+  } | undefined
 }
 
 export interface GroundingCaller {
@@ -113,7 +123,11 @@ export interface GroundingRequest {
   effect: EmbodiedIntentEffect
   context: {
     ref: { runId: string; worldId: string }
-    fragments: Array<{ section: string; content: unknown }>
+    fragments: Array<{
+      section: string
+      source: { trust: string; ids: string[] }
+      content: unknown
+    }>
   }
   caller: GroundingCaller
 }
