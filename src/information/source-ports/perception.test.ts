@@ -1,93 +1,103 @@
 import assert from 'node:assert/strict'
+import { setImmediate } from 'node:timers'
 import { test } from 'node:test'
-import { raycastLookedAtBlock, standingOnBlock, visibleBlocks } from './perception.js'
-import type { PerceptionBlock, PerceptionPort, PerceptionPose } from './perception.js'
+import {
+  raycastLookedAtBlock, standingOnBlock, viewRelativeOffset, visibleBlocks, visibleEntities,
+  type PerceptionBlock, type PerceptionEntityCandidate, type PerceptionPort, type PerceptionPose,
+} from './perception.js'
 
 class FakePerceptionPort implements PerceptionPort {
+  sourceRevision = 1
   constructor(
     public pose: PerceptionPose,
     private blocks: Map<string, PerceptionBlock | 'unloaded'> = new Map(),
+    private entities: PerceptionEntityCandidate[] = [],
   ) {}
   selfPose(): PerceptionPose { return this.pose }
+  revision(): number { return this.sourceRevision }
   blockAt(position: PerceptionPose['position']): PerceptionBlock | 'unloaded' {
-    return this.blocks.get(`${position.x},${position.y},${position.z}`) ?? { name: 'air', solid: false }
+    return this.blocks.get(`${position.x},${position.y},${position.z}`) ?? air()
   }
-  nearbyEntities() { return [] }
+  nearbyEntities(): readonly PerceptionEntityCandidate[] { return this.entities }
 }
 
-const DEFAULT_OPTIONS = { horizontalRadius: 8, verticalRadius: 4, maxDistance: 10, halfAngle: (35 * Math.PI) / 180, limit: 24 }
-function solid(name: string): PerceptionBlock { return { name, solid: true } }
+const POSE: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+const OPTIONS = { horizontalRadius: 8, verticalRadius: 4, maxDistance: 10, halfAngle: (45 * Math.PI) / 180, limit: 24 }
+function air(): PerceptionBlock { return { name: 'air', visible: false, occludes: false } }
+function opaque(name: string): PerceptionBlock { return { name, visible: true, occludes: true } }
+function transparent(name: string): PerceptionBlock { return { name, visible: true, occludes: false } }
 
-test('visibleBlocks includes an exposed, unoccluded block directly ahead', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map([['0,65,-3', solid('stone')]])
-  const result = visibleBlocks(new FakePerceptionPort(pose, blocks), DEFAULT_OPTIONS)
+test('visibleBlocks includes an exposed, unoccluded block directly ahead', async () => {
+  const result = await visibleBlocks(new FakePerceptionPort(POSE, new Map([['0,65,-3', opaque('stone')]])), OPTIONS)
   assert.equal(result.truncated, false)
-  assert.equal(result.blocks.length, 1)
-  assert.deepEqual(result.blocks[0]!.offset, { x: 0, y: 1, z: -3 })
-  assert.equal(result.blocks[0]!.name, 'stone')
+  assert.deepEqual(result.blocks[0]?.offset, { x: 0, y: 1, z: -3 })
 })
 
-test('visibleBlocks excludes a block fully enclosed by solid neighbors (layer 1)', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map([
-    ['1,65,-6', solid('stone')],
-    ['2,65,-6', solid('stone')], ['0,65,-6', solid('stone')],
-    ['1,66,-6', solid('stone')], ['1,64,-6', solid('stone')],
-    ['1,65,-5', solid('stone')], ['1,65,-7', solid('stone')],
+test('visibleBlocks excludes enclosed, outside-FOV and occluded blocks', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([
+    ['1,65,-6', opaque('enclosed')],
+    ['2,65,-6', opaque('stone')], ['0,65,-6', opaque('stone')], ['1,66,-6', opaque('stone')],
+    ['1,64,-6', opaque('stone')], ['1,65,-5', opaque('stone')], ['1,65,-7', opaque('stone')],
+    ['0,65,6', opaque('behind')],
+    ['0,65,-3', opaque('occluder')], ['0,65,-9', opaque('hidden')],
   ])
-  const result = visibleBlocks(new FakePerceptionPort(pose, blocks), DEFAULT_OPTIONS)
-  assert.equal(result.blocks.some((block) => block.offset.x === 1 && block.offset.y === 1 && block.offset.z === -6), false)
+  const result = await visibleBlocks(new FakePerceptionPort(POSE, blocks), OPTIONS)
+  assert.equal(result.blocks.some(block => ['enclosed', 'behind', 'hidden'].includes(block.name)), false)
+  assert.equal(result.blocks.some(block => block.name === 'occluder'), true)
 })
 
-test('visibleBlocks excludes an exposed block outside the view cone (layer 2)', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map([['0,65,6', solid('stone')]]) // directly behind, facing is -z
-  const result = visibleBlocks(new FakePerceptionPort(pose, blocks), DEFAULT_OPTIONS)
-  assert.equal(result.blocks.length, 0)
-})
-
-test('visibleBlocks excludes a block occluded by a nearer solid block on the same ray (layer 3)', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map([
-    ['0,65,-3', solid('stone')], // nearer occluder, directly ahead
-    ['0,65,-9', solid('deepslate')], // farther target, same line — should be hidden behind the occluder
+test('transparent visible blocks do not hide farther surfaces', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([
+    ['0,65,-3', transparent('glass')], ['0,65,-6', opaque('stone')],
   ])
-  const result = visibleBlocks(new FakePerceptionPort(pose, blocks), DEFAULT_OPTIONS)
-  assert.equal(result.blocks.length, 1)
-  assert.equal(result.blocks[0]!.name, 'stone')
+  const result = await visibleBlocks(new FakePerceptionPort(POSE, blocks), OPTIONS)
+  assert.deepEqual(result.blocks.map(block => block.name), ['glass', 'stone'])
 })
 
-test('visibleBlocks sorts by distance and marks the list truncated past the limit', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  // Two separate, non-occluding blocks within the cone at different distances (verified not
-  // to share a ray path: 'nearest' occupies x:[0,1], 'farther' is well clear on the other side).
-  const blocks = new Map([
-    ['0,65,-2', solid('nearest')],
-    ['-3,65,-6', solid('farther')],
+test('visibleBlocks sorts, truncates and treats unloaded terrain as unknown', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([
+    ['0,65,-2', opaque('nearest')], ['-3,65,-6', opaque('farther')], ['2,65,-4', 'unloaded'],
   ])
-  const port = new FakePerceptionPort(pose, blocks)
-  const full = visibleBlocks(port, DEFAULT_OPTIONS)
-  assert.equal(full.truncated, false)
-  assert.equal(full.blocks.length, 2)
-  assert.equal(full.blocks[0]!.name, 'nearest')
-
-  const limited = visibleBlocks(port, { ...DEFAULT_OPTIONS, limit: 1 })
+  const port = new FakePerceptionPort(POSE, blocks)
+  const full = await visibleBlocks(port, OPTIONS)
+  assert.deepEqual(full.blocks.map(block => block.name), ['nearest', 'farther'])
+  const limited = await visibleBlocks(port, { ...OPTIONS, limit: 1 })
   assert.equal(limited.truncated, true)
-  assert.equal(limited.blocks.length, 1)
-  assert.equal(limited.blocks[0]!.name, 'nearest')
+  assert.deepEqual(limited.blocks.map(block => block.name), ['nearest'])
 })
 
-test('visibleBlocks stops scanning cleanly when candidates are unloaded (no throw)', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', 'unloaded']])
-  const result = visibleBlocks(new FakePerceptionPort(pose, blocks), DEFAULT_OPTIONS)
-  assert.equal(result.blocks.length, 0)
+test('visibleBlocks yields to cancellation during a large scan', async () => {
+  const controller = new AbortController()
+  setImmediate(() => controller.abort('superseded'))
+  await assert.rejects(
+    visibleBlocks(new FakePerceptionPort(POSE), { ...OPTIONS, horizontalRadius: 32, verticalRadius: 20 }, controller.signal),
+    error => error === 'superseded',
+  )
 })
 
-test('raycastLookedAtBlock and standingOnBlock still behave as before (regression)', () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const port = new FakePerceptionPort(pose, new Map([['0,65,-3', solid('stone')], ['0,63,0', solid('grass_block')]]))
-  assert.equal(raycastLookedAtBlock(port, 4.5)?.name, 'stone')
+test('visibleEntities excludes targets behind the view or an opaque wall', () => {
+  const entities: PerceptionEntityCandidate[] = [
+    { type: 'player', username: 'Alex', position: { x: -2, y: 64, z: -4 }, height: 1.8 },
+    { type: 'zombie', position: { x: 0, y: 64, z: -8 }, height: 1.95 },
+    { type: 'cow', position: { x: 0, y: 64, z: 3 }, height: 1.4 },
+  ]
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([
+    ['0,64,-3', opaque('wall')], ['0,65,-3', opaque('wall')], ['0,66,-3', opaque('wall')],
+  ])
+  const result = visibleEntities(new FakePerceptionPort(POSE, blocks, entities), 32, Math.PI / 4, 10)
+  assert.deepEqual(result.map(entity => entity.username ?? entity.type), ['Alex'])
+})
+
+test('viewRelativeOffset rotates world axes into right/up/forward coordinates', () => {
+  assert.deepEqual(viewRelativeOffset(POSE, { x: 2, y: 1, z: -3 }), [2, 1, 3])
+  assert.deepEqual(viewRelativeOffset({ ...POSE, yaw: -Math.PI / 2 }, { x: 3, y: 0, z: 0 }), [0, 0, 3])
+})
+
+test('raycast and standingOnBlock use visible blocks rather than air', () => {
+  const port = new FakePerceptionPort(POSE, new Map([
+    ['0,65,-3', transparent('glass')], ['0,63,0', opaque('grass_block')],
+  ]))
+  assert.equal(raycastLookedAtBlock(port, 4.5)?.name, 'glass')
   assert.deepEqual(standingOnBlock(port), { name: 'grass_block' })
+  assert.equal(standingOnBlock(new FakePerceptionPort(POSE)), null)
 })

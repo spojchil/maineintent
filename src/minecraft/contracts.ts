@@ -239,6 +239,8 @@ export type Unsubscribe = () => void
 
 export interface ProtocolObservationSource {
   epoch(): number
+  /** Monotonic within the process; changes when entity/block candidates or chunk knowledge change. */
+  revision(): number
   selfPose(): Readonly<Pick<SelfSnapshot, 'position' | 'velocity' | 'yaw' | 'pitch'>>
   listTrackedEntities(): readonly Readonly<ProtocolEntitySnapshot>[]
   readBlock(position: BlockPosition): Readonly<BlockReadResult>

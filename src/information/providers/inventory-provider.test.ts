@@ -28,7 +28,10 @@ test('inventory provider satisfies the provider contract', async () => {
 })
 
 test('inventory provider reports current slots and selected hotbar slot', async () => {
-  const port = new FakeInventoryPort({ selectedHotbarSlot: 3, slots: [{ slot: 36, itemName: 'stone', count: 64 }] })
+  const port = new FakeInventoryPort({
+    selectedHotbarSlot: 3,
+    slots: [{ slot: 36, itemName: 'stone', count: 64, metadata: 7, durabilityUsed: 12 }],
+  })
   const provider = new InventoryProvider(port)
   const result = await provider.read(context(), { fields: ['selectedHotbarSlot', 'slots'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.selectedHotbarSlot, 3)

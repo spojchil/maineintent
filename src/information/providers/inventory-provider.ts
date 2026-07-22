@@ -1,20 +1,22 @@
 import { z } from 'zod'
-import type { InformationProvider, InformationProviderContext, InformationProviderDefinition, ProviderAvailability, ProviderReadRequest, ProviderReadResult } from '../contracts/index.js'
+import type {
+  InformationProvider, InformationProviderContext, InformationProviderDefinition,
+  ProviderAvailability, ProviderReadRequest, ProviderReadResult,
+} from '../contracts/index.js'
 import type { InventoryPort } from '../source-ports/inventory.js'
 
 export interface InventoryValues {
   selectedHotbarSlot: number
-  slots: Array<{ slot: number; itemName: string; count: number; metadata?: number; durabilityUsed?: number }>
+  slots: Array<{ slot: number; itemName: string; count: number }>
 }
 
 const slotSchema = z.object({
   slot: z.number().int().min(0),
   itemName: z.string().min(1),
   count: z.number().int().positive(),
-  metadata: z.number().int().optional(),
-  durabilityUsed: z.number().int().optional(),
 })
 
+/** Own-inventory projection; exact internal durability and item metadata remain driver-private. */
 export class InventoryProvider implements InformationProvider<InventoryValues> {
   readonly #port: InventoryPort
   #revision = 0
@@ -24,8 +26,8 @@ export class InventoryProvider implements InformationProvider<InventoryValues> {
 
   readonly definition: InformationProviderDefinition<InventoryValues> = {
     id: 'inventory_information',
-    description: '站立不动时可直接得知的背包内容与当前选中快捷栏槽',
-    schemaRevision: 'inventory-information:1',
+    description: '可结构化检查的自身背包内容与当前选中快捷栏槽',
+    schemaRevision: 'inventory-information:2',
     audiences: ['companion'] as const,
     fields: {
       selectedHotbarSlot: {
@@ -33,8 +35,8 @@ export class InventoryProvider implements InformationProvider<InventoryValues> {
         precision: 'exactly_displayed', sourceKinds: ['client_state'],
       },
       slots: {
-        description: '背包中所有非空槽位', valueSchema: z.array(slotSchema), valueType: 'array',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
+        description: '自身背包中所有非空槽位；不含隐藏 NBT、精确耐久和外部容器内容',
+        valueSchema: z.array(slotSchema), valueType: 'array', precision: 'displayed', sourceKinds: ['client_state'],
       },
     },
     scopeDependencies: ['connection', 'world'] as const,
@@ -42,7 +44,7 @@ export class InventoryProvider implements InformationProvider<InventoryValues> {
   }
 
   availability(): ProviderAvailability<InventoryValues> {
-    return { overall: 'available', informationRevision: this.#revisionFor(this.#port.current()), fields: {} }
+    return { overall: 'available', informationRevision: this.#revisionFor(project(this.#port.current())), fields: {} }
   }
 
   async read(
@@ -50,23 +52,30 @@ export class InventoryProvider implements InformationProvider<InventoryValues> {
     request: ProviderReadRequest<InventoryValues, never, never>,
     _signal: AbortSignal,
   ): Promise<ProviderReadResult<InventoryValues, never>> {
-    const inventory = this.#port.current()
+    const inventory = project(this.#port.current())
     const revision = this.#revisionFor(inventory)
     const values: Partial<InventoryValues> = {}
-    for (const field of request.fields) {
-      if (field === 'selectedHotbarSlot') values.selectedHotbarSlot = inventory.selectedHotbarSlot
-      if (field === 'slots') values.slots = inventory.slots
-    }
+    for (const field of request.fields) Object.assign(values, { [field]: structuredClone(inventory[field]) })
     return {
       informationRevision: revision, values, unavailable: [],
-      source: { kind: 'client_state', adapterRevision: 'inventory-provider.v1', sourceRevision: revision, acquisition: 'immediate_client_state' },
+      source: {
+        kind: 'client_state', adapterRevision: 'inventory-provider.v2', sourceRevision: revision,
+        acquisition: 'structured_ui_equivalent',
+      },
       observedAt: context.now, evidenceIds: [],
     }
   }
 
-  #revisionFor(inventory: ReturnType<InventoryPort['current']>): number {
+  #revisionFor(inventory: InventoryValues): number {
     const signature = JSON.stringify(inventory)
     if (signature !== this.#lastSignature) { this.#lastSignature = signature; this.#revision++ }
     return this.#revision
+  }
+}
+
+function project(inventory: ReturnType<InventoryPort['current']>): InventoryValues {
+  return {
+    selectedHotbarSlot: inventory.selectedHotbarSlot,
+    slots: inventory.slots.map(({ slot, itemName, count }) => ({ slot, itemName, count })),
   }
 }

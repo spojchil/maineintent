@@ -13,6 +13,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   state_: BackendState = { status: 'idle' }
   entities: MinecraftSnapshotV1['trackedPlayers'] = []
   position = { x: 0, y: 64, z: 0 }
+  dimension = 'overworld'
 
   async start(): Promise<BackendReady> { throw new Error('not used') }
   async stop(): Promise<void> {}
@@ -21,7 +22,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
     return {
       protocol: 'mineintent.minecraft.snapshot.v1', snapshotRevision: 1, lifecycleRevision: 1,
       capturedAt: new Date().toISOString(), processSessionId: 'session', connectionEpoch: 1, connectionAttemptId: 'attempt',
-      world: { worldId: 'test-world', dimension: 'overworld', minecraftVersion: '1.21.1', protocolVersion: 767, gameMode: 'survival', minY: -64, height: 384 },
+      world: { worldId: 'test-world', dimension: this.dimension, minecraftVersion: '1.21.1', protocolVersion: 767, gameMode: 'survival', minY: -64, height: 384 },
       self: { entityKey: 'self', username: 'Bot', position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, onGround: true, alive: true, health: 15, food: 12, foodSaturation: 3, effects: [] },
       inventory: { selectedHotbarSlot: 2, slots: [{ slot: 9, itemName: 'oak_log', count: 2 }] },
       trackedPlayers: this.entities,
@@ -31,6 +32,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   observationSource(): ProtocolObservationSource {
     return {
       epoch: () => 1,
+      revision: () => 1,
       selfPose: () => ({ position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0 }),
       listTrackedEntities: () => [
         { entityKey: 'self', protocolEntityId: 0, type: 'player', username: 'Bot', position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, width: 0.6, height: 1.8, onGround: true, equipment: [], valid: true },
@@ -42,10 +44,10 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   }
   controls(): MinecraftControlsApi { throw new Error('not used') }
   sendChat(): void {}
-  emitSound(sourcePosition: { x: number; y: number; z: number }): void {
+  emitSound(sourcePosition: { x: number; y: number; z: number }, occurredAt = new Date().toISOString()): void {
     this.emit('backend', {
-      protocol: 'mineintent.minecraft.backend-event.v1', id: 'event-1', kind: 'sound', occurredAt: new Date().toISOString(),
-      processSessionId: 'session', connectionEpoch: 1, connectionAttemptId: 'attempt', worldId: 'test-world', dimension: 'overworld',
+      protocol: 'mineintent.minecraft.backend-event.v1', id: 'event-1', kind: 'sound', occurredAt,
+      processSessionId: 'session', connectionEpoch: 1, connectionAttemptId: 'attempt', worldId: 'test-world', dimension: this.dimension,
       payload: { type: 'heard', soundKey: 'k', soundName: 'entity.cow.ambient', category: 'neutral', sourcePosition, volume: 1, pitch: 1, protocolSource: 'named_sound_effect' },
     } satisfies BackendEventEnvelope)
   }
@@ -63,23 +65,33 @@ test('BackendPerceptionPort excludes self from nearby entities and maps block lo
   const nearby = port.nearbyEntities()
   assert.equal(nearby.length, 1)
   assert.equal(nearby[0]!.username, 'Alex')
-  assert.deepEqual(port.blockAt({ x: 0, y: 60, z: 0 }), { name: 'stone', solid: true })
+  assert.deepEqual(port.blockAt({ x: 0, y: 60, z: 0 }), { name: 'stone', visible: true, occludes: true })
   assert.equal(port.blockAt({ x: 0, y: 70, z: 0 }), 'unloaded')
 })
 
-test('SoundHistory records distance and direction relative to self, bounded and revisioned', () => {
+test('SoundHistory exposes bounded semantics and discards expired or cross-dimension observations', () => {
   const backend = new FakeBackend()
-  const history = new SoundHistory(backend)
+  backend.state_ = { status: 'ready', epoch: 1, attemptId: 'a', readyAt: new Date().toISOString() }
+  let now = new Date()
+  const history = new SoundHistory(backend, () => now)
   assert.equal(history.revision(), 0)
-  backend.emitSound({ x: 0, y: 64, z: -5 })
+  backend.emitSound({ x: 0, y: 64, z: -5 }, now.toISOString())
   assert.equal(history.revision(), 1)
   const [entry] = history.recent(10)
-  assert.equal(entry!.soundName, 'entity.cow.ambient')
-  assert.equal(entry!.distance, 5)
+  assert.equal(entry!.semanticHint, 'cow')
+  assert.equal(entry!.distanceBand, 'near')
   assert.equal(entry!.direction, 'ahead')
+
+  now = new Date(now.getTime() + 6_000)
+  assert.deepEqual(history.recent(10), [], 'expired observations are not current hearing')
+  backend.emitSound({ x: 0, y: 64, z: -2 }, now.toISOString())
+  assert.equal(history.recent(10).length, 1)
+  backend.dimension = 'the_nether'
+  assert.deepEqual(history.recent(10), [], 'observations do not cross dimensions')
+
   history.dispose()
   backend.emitSound({ x: 0, y: 64, z: -1 })
-  assert.equal(history.revision(), 1, 'no longer subscribed after dispose')
+  assert.deepEqual(history.recent(10), [], 'no longer subscribed after dispose')
 })
 
 test('BackendInformationScopeSource maps backend state to connection state and includes world info once ready', () => {

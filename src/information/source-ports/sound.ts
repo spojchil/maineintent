@@ -1,13 +1,14 @@
 import type { RelativeDirection } from '../geometry.js'
 
+export type SoundDistanceBand = 'very_near' | 'near' | 'medium' | 'far'
+
 export interface SoundObservation {
-  soundName?: string
-  category?: string
-  distance: number
+  /** Conservative semantic label from a version-locked registry map; absent means unidentified. */
+  semanticHint?: string
+  distanceBand: SoundDistanceBand
   direction: RelativeDirection
-  volume: number
-  pitch: number
   observedAt: string
+  validUntil: string
 }
 
 export interface SoundHistoryPort {

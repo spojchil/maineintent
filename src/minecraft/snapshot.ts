@@ -41,11 +41,10 @@ export function buildSnapshot(bot: BotLike, context: SnapshotContext, allowDead 
   const mode = game?.gameMode
   if (!mode || !gameModes.has(mode)) throw new Error(`Unsupported game mode: ${String(mode)}`)
 
-  const effects = Object.entries(bot.entity.effects ?? {}).map(([name, effect]) => ({
-    name,
-    amplifier: effect.amplifier ?? 0,
-    ...(effect.duration === undefined ? {} : { durationTicks: effect.duration }),
-  }))
+  const effects = Object.entries(bot.entity.effects ?? {}).flatMap(([id, effect]) => {
+    const name = bot.registry?.effects?.[id]?.name
+    return name ? [{ name, amplifier: effect.amplifier ?? 0 }] : []
+  })
 
   const slots = (bot.inventory?.slots ?? []).flatMap((item, slot) => item?.name ? [{
     slot,

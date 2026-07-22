@@ -5,17 +5,22 @@ import { assertInformationProviderContract } from '../testing/provider-contract.
 import { ViewportInformationProvider } from './viewport-provider.js'
 
 class FakePerceptionPort implements PerceptionPort {
+  sourceRevision = 1
   constructor(
     public pose: PerceptionPose,
     private blocks: Map<string, PerceptionBlock | 'unloaded'>,
     private entities: PerceptionEntityCandidate[] = [],
   ) {}
   selfPose(): PerceptionPose { return this.pose }
+  revision(): number { return this.sourceRevision }
   blockAt(position: PerceptionPose['position']): PerceptionBlock | 'unloaded' {
-    return this.blocks.get(`${position.x},${position.y},${position.z}`) ?? { name: 'air', solid: false }
+    return this.blocks.get(`${position.x},${position.y},${position.z}`) ?? air()
   }
   nearbyEntities(): readonly PerceptionEntityCandidate[] { return this.entities }
 }
+
+function air(): PerceptionBlock { return { name: 'air', visible: false, occludes: false } }
+function opaque(name: string): PerceptionBlock { return { name, visible: true, occludes: true } }
 
 function context() {
   return {
@@ -26,72 +31,71 @@ function context() {
   }
 }
 
+const NORTH_POSE: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+
 test('viewport provider satisfies the provider contract', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map()))
-  await assertInformationProviderContract(provider, { context: context(), request: { fields: ['standingOnBlock', 'lookedAtBlock', 'nearbyTrackedEntities', 'visibleBlocks'], page: { limit: 1 } } })
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, new Map()))
+  await assertInformationProviderContract(provider, {
+    context: context(), request: { fields: ['standingOnBlock', 'lookedAtBlock', 'visibleEntities', 'visibleBlocks'], page: { limit: 1 } },
+  })
 })
 
-test('viewport provider surfaces visibleBlocks through the read path', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', { name: 'stone', solid: true }]])
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
+test('viewport provider emits view-relative visible block tuples', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', opaque('stone')]])
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
   const result = await provider.read(context(), { fields: ['visibleBlocks'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.visibleBlocks?.truncated, false)
-  assert.deepEqual(result.values.visibleBlocks?.blocks[0], [0, 1, -3, 'stone'])
+  assert.deepEqual(result.values.visibleBlocks?.blocks[0], [0, 1, 3, 'stone'])
 })
 
-test('viewport provider reports the block directly underfoot', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,63,0', { name: 'grass_block', solid: true }]])
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
+test('viewport provider reports the inferred block directly underfoot', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,63,0', opaque('grass_block')]])
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
   const result = await provider.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)
   assert.deepEqual(result.values.standingOnBlock, { name: 'grass_block' })
 })
 
-test('viewport provider reports standingOnBlock as null when underfoot is unloaded', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map([['0,63,0', 'unloaded']])))
-  const result = await provider.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)
-  assert.equal(result.values.standingOnBlock, null)
+test('viewport provider reports standingOnBlock as null for unloaded or air', async () => {
+  const unloaded = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, new Map([['0,63,0', 'unloaded']])))
+  const airProvider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, new Map()))
+  assert.equal((await unloaded.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)).values.standingOnBlock, null)
+  assert.equal((await airProvider.read(context(), { fields: ['standingOnBlock'], page: { limit: 1 } }, new AbortController().signal)).values.standingOnBlock, null)
 })
 
-test('viewport provider finds the nearest solid block along the sightline', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', { name: 'stone', solid: true }]])
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
+test('viewport provider finds the nearest visible block along the sightline', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([['0,65,-3', opaque('stone')]])
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
   const result = await provider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)
   assert.equal(result.values.lookedAtBlock?.name, 'stone')
 })
 
-test('viewport provider reports null when the sightline is all air within range', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map()))
-  const result = await provider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)
-  assert.equal(result.values.lookedAtBlock, null)
+test('viewport provider reports null for air or unloaded sightlines', async () => {
+  const airProvider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, new Map()))
+  const unloaded = new Map<string, PerceptionBlock | 'unloaded'>()
+  for (let z = 0; z >= -6; z--) unloaded.set(`0,65,${z}`, 'unloaded')
+  const unloadedProvider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, unloaded))
+  assert.equal((await airProvider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)).values.lookedAtBlock, null)
+  assert.equal((await unloadedProvider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)).values.lookedAtBlock, null)
 })
 
-test('viewport provider stops at unloaded terrain instead of guessing past it', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
-  const blocks = new Map<string, PerceptionBlock | 'unloaded'>()
-  for (let z = 0; z >= -6; z--) blocks.set(`0,65,${z}`, 'unloaded')
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, blocks))
-  const result = await provider.read(context(), { fields: ['lookedAtBlock'], page: { limit: 1 } }, new AbortController().signal)
-  assert.equal(result.values.lookedAtBlock, null)
-})
-
-test('viewport provider sorts nearby tracked entities by distance and bounds the list', async () => {
-  const pose: PerceptionPose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+test('viewport provider publishes only entities that pass FOV and occlusion', async () => {
   const entities: PerceptionEntityCandidate[] = [
-    { type: 'zombie', position: { x: 0, y: 64, z: -10 } },
-    { type: 'player', username: 'Alex', position: { x: 0, y: 64, z: -2 } },
-    { type: 'cow', position: { x: 0, y: 64, z: -30 } },
+    { type: 'player', username: 'Alex', position: { x: -2, y: 64, z: -4 }, height: 1.8 },
+    { type: 'zombie', position: { x: 0, y: 64, z: -10 }, height: 1.95 },
+    { type: 'cow', position: { x: 0, y: 64, z: 3 }, height: 1.4 },
   ]
-  const provider = new ViewportInformationProvider(new FakePerceptionPort(pose, new Map(), entities))
-  const result = await provider.read(context(), { fields: ['nearbyTrackedEntities'], page: { limit: 1 } }, new AbortController().signal)
-  const list = result.values.nearbyTrackedEntities!
-  assert.equal(list.length, 2)
-  assert.equal(list[0]!.username, 'Alex')
-  assert.equal(list[0]!.direction, 'ahead')
-  assert.equal(list[1]!.type, 'zombie')
+  const wall = new Map<string, PerceptionBlock | 'unloaded'>([
+    ['0,64,-3', opaque('stone')], ['0,65,-3', opaque('stone')], ['0,66,-3', opaque('stone')],
+  ])
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, wall, entities))
+  const result = await provider.read(context(), { fields: ['visibleEntities'], page: { limit: 1 } }, new AbortController().signal)
+  assert.deepEqual(result.values.visibleEntities?.map(entity => entity.username ?? entity.type), ['Alex'])
+})
+
+test('viewport revision changes when the perception source changes without a pose change', () => {
+  const port = new FakePerceptionPort(NORTH_POSE, new Map())
+  const provider = new ViewportInformationProvider(port)
+  const before = provider.availability().informationRevision
+  port.sourceRevision++
+  assert.equal(provider.availability().informationRevision, before + 1)
 })

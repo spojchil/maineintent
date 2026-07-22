@@ -21,10 +21,17 @@ export class BackendPerceptionPort implements PerceptionPort {
     return this.backend.observationSource().selfPose()
   }
 
+  revision(): number { return this.backend.observationSource().revision() }
+
   blockAt(position: PerceptionPose['position']): ReturnType<PerceptionPort['blockAt']> {
     const result = this.backend.observationSource().readBlock(position)
     if (result.status !== 'loaded') return 'unloaded'
-    return { name: result.block.name, solid: result.block.boundingBox !== 'empty' && result.block.name !== 'air' }
+    const visible = !['air', 'cave_air', 'void_air'].includes(result.block.name)
+    return {
+      name: result.block.name,
+      visible,
+      occludes: visible && !result.block.transparentHint,
+    }
   }
 
   nearbyEntities(): readonly PerceptionEntityCandidate[] {
@@ -37,26 +44,53 @@ export class BackendPerceptionPort implements PerceptionPort {
         ...(entity.name ? { name: entity.name } : {}),
         ...(entity.username ? { username: entity.username } : {}),
         position: entity.position,
+        width: entity.width,
+        height: entity.height,
       }))
   }
 }
 
 const SOUND_HISTORY_CAPACITY = 20
+const SOUND_TTL_MS = 5_000
+const MAX_SOUND_DISTANCE = 64
+
+// Version-locked 1.21.1 semantic allowlist. Unknown registry names remain unidentified rather
+// than being interpreted by splitting arbitrary protocol strings.
+const SOUND_SEMANTICS_1_21_1: Readonly<Record<string, string>> = {
+  'entity.cow.ambient': 'cow',
+  'entity.zombie.ambient': 'zombie',
+  'entity.skeleton.ambient': 'skeleton',
+  'entity.creeper.primed': 'creeper_fuse',
+  'entity.player.hurt': 'player_hurt',
+  'entity.player.levelup': 'player_level_up',
+  'block.wood.break': 'wood_break',
+  'block.wood.place': 'wood_place',
+  'block.chest.open': 'container_open',
+  'block.chest.close': 'container_close',
+}
+
+interface ScopedSoundObservation {
+  scopeKey: string
+  value: SoundObservation
+}
 
 export class SoundHistory implements SoundHistoryPort {
-  readonly #entries: SoundObservation[] = []
+  #entries: ScopedSoundObservation[] = []
   readonly #unsubscribe: Unsubscribe
+  readonly #now: () => Date
   #revision = 0
 
-  constructor(private readonly backend: MinecraftBackendApi) {
+  constructor(private readonly backend: MinecraftBackendApi, now: () => Date = () => new Date()) {
+    this.#now = now
     this.#unsubscribe = backend.subscribe((event) => { if (event.kind === 'sound') this.#record(event) })
   }
 
   recent(limit: number): readonly SoundObservation[] {
-    return this.#entries.slice(-limit).reverse()
+    this.#purge()
+    return this.#entries.slice(-limit).reverse().map(entry => structuredClone(entry.value))
   }
 
-  revision(): number { return this.#revision }
+  revision(): number { this.#purge(); return this.#revision }
 
   dispose(): void { this.#unsubscribe() }
 
@@ -64,18 +98,46 @@ export class SoundHistory implements SoundHistoryPort {
     const payload = event.payload as ProtocolSoundPayload
     let self
     try { self = this.backend.snapshot().self } catch { return }
+    const scopeKey = this.#eventScopeKey(event)
+    if (!scopeKey) return
+    const distance = distanceBetween(self.position, payload.sourcePosition)
+    const protocolRange = Math.min(MAX_SOUND_DISTANCE, Math.max(16, 16 * payload.volume))
+    if (distance > protocolRange) return
+    const observedAtMs = Date.parse(event.occurredAt)
+    if (!Number.isFinite(observedAtMs)) return
+    const registryName = payload.soundName?.replace(/^minecraft:/u, '')
     const observation: SoundObservation = {
-      ...(payload.soundName ? { soundName: payload.soundName } : {}),
-      ...(payload.category ? { category: payload.category } : {}),
-      distance: distanceBetween(self.position, payload.sourcePosition),
+      ...(registryName && SOUND_SEMANTICS_1_21_1[registryName]
+        ? { semanticHint: SOUND_SEMANTICS_1_21_1[registryName] }
+        : {}),
+      distanceBand: distance <= 2.5 ? 'very_near' : distance <= 8 ? 'near' : distance <= 24 ? 'medium' : 'far',
       direction: relativeBearing(self.yaw, self.position, payload.sourcePosition),
-      volume: payload.volume,
-      pitch: payload.pitch,
       observedAt: event.occurredAt,
+      validUntil: new Date(observedAtMs + SOUND_TTL_MS).toISOString(),
     }
-    this.#entries.push(observation)
+    this.#entries.push({ scopeKey, value: observation })
     if (this.#entries.length > SOUND_HISTORY_CAPACITY) this.#entries.shift()
     this.#revision++
+  }
+
+  #eventScopeKey(event: BackendEventEnvelope): string | undefined {
+    if (!event.dimension) return undefined
+    return `${event.connectionEpoch}:${event.dimension}`
+  }
+
+  #currentScopeKey(): string | undefined {
+    const state = this.backend.state()
+    if (state.status !== 'ready' && state.status !== 'dead') return undefined
+    try { return `${state.epoch}:${this.backend.snapshot().world.dimension}` } catch { return undefined }
+  }
+
+  #purge(): void {
+    const before = this.#entries.length
+    const scopeKey = this.#currentScopeKey()
+    const now = this.#now().getTime()
+    this.#entries = this.#entries.filter(entry =>
+      scopeKey !== undefined && entry.scopeKey === scopeKey && Date.parse(entry.value.validUntil) > now)
+    if (this.#entries.length !== before) this.#revision++
   }
 }
 

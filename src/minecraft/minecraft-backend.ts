@@ -98,6 +98,7 @@ export class MinecraftBackend implements MinecraftBackendApi {
   #attempt = 0
   #lifecycleRevision = 0
   #snapshotRevision = 0
+  #perceptionRevision = 0
   #subscribers = new Set<(event: BackendEventEnvelope) => void>()
   #observationSubscribers = new Set<{
     epoch: number
@@ -216,6 +217,7 @@ export class MinecraftBackend implements MinecraftBackendApi {
     }
     return {
       epoch: () => epoch,
+      revision: () => { assertCurrent(); return this.#perceptionRevision },
       selfPose: () => {
         const bot = assertCurrent()
         if (!bot.entity) throw new BackendNotReadyError()
@@ -635,6 +637,7 @@ export class MinecraftBackend implements MinecraftBackendApi {
   #emitLifecycle(payload: BackendLifecyclePayload): void { this.#emit('lifecycle', payload) }
 
   #emitObservation(kind: 'entity' | 'block' | 'sound', payload: ProtocolEntityEvent | ProtocolBlockEvent | ProtocolSoundPayload): void {
+    if (kind === 'entity' || kind === 'block') this.#perceptionRevision++
     const event = this.#makeEvent(kind, payload)
     for (const subscription of [...this.#observationSubscribers]) {
       try { subscription.listener(event) } catch { /* subscriber isolation */ }

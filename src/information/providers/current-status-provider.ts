@@ -1,22 +1,32 @@
 import { z } from 'zod'
-import type { InformationProvider, InformationProviderContext, InformationProviderDefinition, ProviderAvailability, ProviderReadRequest, ProviderReadResult } from '../contracts/index.js'
+import type {
+  InformationProvider, InformationProviderContext, InformationProviderDefinition,
+  ProviderAvailability, ProviderReadRequest, ProviderReadResult,
+} from '../contracts/index.js'
 import type { SelfVitalsPort } from '../source-ports/self-vitals.js'
 
 export interface CurrentStatusValues {
   health: number
   food: number
-  foodSaturation: number
   oxygen: number
   experienceLevel: number
-  statusEffects: Array<{ name: string; amplifier: number; durationTicks?: number }>
+  statusEffects: Array<{ name: string; amplifier: number }>
 }
 
 const statusEffectSchema = z.object({
   name: z.string().min(1),
   amplifier: z.number().int(),
-  durationTicks: z.number().int().optional(),
 })
 
+interface CurrentStatusProjection {
+  values: Partial<CurrentStatusValues>
+  unavailable: ProviderReadResult<CurrentStatusValues, never>['unavailable']
+}
+
+/**
+ * Projects only values a vanilla HUD can communicate. Raw saturation, exact effect ticks and
+ * experience totals stay in the driver snapshot and never cross the Information boundary.
+ */
 export class CurrentStatusProvider implements InformationProvider<CurrentStatusValues> {
   readonly #port: SelfVitalsPort
   #revision = 0
@@ -26,41 +36,43 @@ export class CurrentStatusProvider implements InformationProvider<CurrentStatusV
 
   readonly definition: InformationProviderDefinition<CurrentStatusValues> = {
     id: 'current_status',
-    description: '站立不动时可直接得知的自身状态：生命、饥饿、氧气、经验和药水效果',
-    schemaRevision: 'current-status:1',
+    description: '当前原版 HUD 可表达的生命、饥饿、空气、经验等级和状态效果',
+    schemaRevision: 'current-status:2',
     audiences: ['companion'] as const,
     fields: {
       health: {
-        description: '当前生命值', valueSchema: z.number().min(0), valueType: 'number',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
+        description: '生命条可分辨的当前生命值', valueSchema: z.number().int().min(0), valueType: 'number',
+        precision: 'quantized', sourceKinds: ['hud_projection'],
+        notes: '向上量化到整点生命值；不暴露协议中的不可见小数',
       },
       food: {
-        description: '当前饥饿值（0-20）', valueSchema: z.number().min(0).max(20), valueType: 'number',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
-      },
-      foodSaturation: {
-        description: '当前饱和度', valueSchema: z.number().min(0), valueType: 'number',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
+        description: '当前饥饿条显示值（0-20）', valueSchema: z.number().int().min(0).max(20), valueType: 'number',
+        precision: 'exactly_displayed', sourceKinds: ['hud_projection'],
       },
       oxygen: {
-        description: '当前氧气值；不在水下通常为满值', valueSchema: z.number().min(0), valueType: 'number',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
+        description: '空气条当前显示值；没有空气条证据时不可用', valueSchema: z.number().int().min(0), valueType: 'number',
+        precision: 'quantized', sourceKinds: ['hud_projection'],
       },
       experienceLevel: {
-        description: '当前经验等级', valueSchema: z.number().int().min(0), valueType: 'number',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
+        description: 'HUD 显示的当前经验等级', valueSchema: z.number().int().min(0), valueType: 'number',
+        precision: 'exactly_displayed', sourceKinds: ['hud_projection'],
       },
       statusEffects: {
-        description: '当前生效的药水/状态效果', valueSchema: z.array(statusEffectSchema), valueType: 'array',
-        precision: 'exactly_displayed', sourceKinds: ['client_state'],
+        description: '当前 HUD 可识别的状态效果及等级，不含隐藏的精确剩余 tick',
+        valueSchema: z.array(statusEffectSchema), valueType: 'array', precision: 'displayed', sourceKinds: ['hud_projection'],
       },
     },
     scopeDependencies: ['connection', 'world'] as const,
-    limits: { maxFieldsPerRead: 6, maxResultBytes: 8_192, timeoutMs: 2_000 },
+    limits: { maxFieldsPerRead: 5, maxResultBytes: 8_192, timeoutMs: 2_000 },
   }
 
   availability(): ProviderAvailability<CurrentStatusValues> {
-    return { overall: 'available', informationRevision: this.#revisionFor(this.#port.current()), fields: {} }
+    const projection = project(this.#port.current())
+    const fields = Object.fromEntries(projection.unavailable.map(item => [item.field, item.reason]))
+    return {
+      overall: projection.unavailable.length === 0 ? 'available' : 'partially_available',
+      informationRevision: this.#revisionFor(projection), fields,
+    }
   }
 
   async read(
@@ -68,29 +80,43 @@ export class CurrentStatusProvider implements InformationProvider<CurrentStatusV
     request: ProviderReadRequest<CurrentStatusValues, never, never>,
     _signal: AbortSignal,
   ): Promise<ProviderReadResult<CurrentStatusValues, never>> {
-    const vitals = this.#port.current()
-    const revision = this.#revisionFor(vitals)
+    const projection = project(this.#port.current())
+    const revision = this.#revisionFor(projection)
     const values: Partial<CurrentStatusValues> = {}
+    const unavailable: ProviderReadResult<CurrentStatusValues, never>['unavailable'] = []
     for (const field of request.fields) {
-      switch (field) {
-        case 'health': values.health = vitals.health; break
-        case 'food': values.food = vitals.food; break
-        case 'foodSaturation': values.foodSaturation = vitals.foodSaturation; break
-        case 'oxygen': values.oxygen = vitals.oxygen ?? 20; break
-        case 'experienceLevel': values.experienceLevel = vitals.experience?.level ?? 0; break
-        case 'statusEffects': values.statusEffects = vitals.effects; break
-      }
+      const missing = projection.unavailable.find(item => item.field === field)
+      if (missing) { unavailable.push(missing); continue }
+      const value = projection.values[field]
+      if (value !== undefined) Object.assign(values, { [field]: structuredClone(value) })
     }
     return {
-      informationRevision: revision, values, unavailable: [],
-      source: { kind: 'client_state', adapterRevision: 'current-status-provider.v1', sourceRevision: revision, acquisition: 'immediate_client_state' },
+      informationRevision: revision, values, unavailable,
+      source: {
+        kind: 'hud_projection', adapterRevision: 'current-status-provider.v2', sourceRevision: revision,
+        acquisition: 'structured_ui_equivalent',
+      },
       observedAt: context.now, evidenceIds: [],
     }
   }
 
-  #revisionFor(vitals: ReturnType<SelfVitalsPort['current']>): number {
-    const signature = JSON.stringify(vitals)
+  #revisionFor(projection: CurrentStatusProjection): number {
+    const signature = JSON.stringify(projection)
     if (signature !== this.#lastSignature) { this.#lastSignature = signature; this.#revision++ }
     return this.#revision
   }
+}
+
+function project(vitals: ReturnType<SelfVitalsPort['current']>): CurrentStatusProjection {
+  const values: Partial<CurrentStatusValues> = {
+    health: Math.max(0, Math.ceil(vitals.health)),
+    food: Math.max(0, Math.min(20, Math.round(vitals.food))),
+    statusEffects: vitals.effects.map(effect => ({ name: effect.name, amplifier: effect.amplifier })),
+  }
+  const unavailable: CurrentStatusProjection['unavailable'] = []
+  if (vitals.oxygen === undefined) unavailable.push({ field: 'oxygen', reason: 'not_currently_displayed' })
+  else values.oxygen = Math.max(0, Math.round(vitals.oxygen))
+  if (vitals.experience === undefined) unavailable.push({ field: 'experienceLevel', reason: 'not_supported' })
+  else values.experienceLevel = Math.max(0, Math.floor(vitals.experience.level))
+  return { values, unavailable }
 }

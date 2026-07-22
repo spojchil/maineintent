@@ -70,6 +70,7 @@ export interface BotLike extends EventEmitter {
   quickBarSlot?: number
   time?: { timeOfDay?: number }
   isRaining?: boolean
+  registry?: { effects?: Record<string | number, { name?: string }> }
   world?: { getBlock(position: VectorLike): BlockLike | null }
   quit(reason?: string): void
   end(reason?: string): void

@@ -30,7 +30,8 @@ function buildRuntime(allowedInterfaces: '*' | readonly InformationInterfaceId[]
   const sound: SoundHistoryPort = { recent: () => [], revision: () => 0 }
   const perception: PerceptionPort = {
     selfPose: () => ({ position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }),
-    blockAt: () => ({ name: 'air', solid: false }),
+    revision: () => 1,
+    blockAt: () => ({ name: 'air', visible: false, occludes: false }),
     nearbyEntities: () => [],
   }
   const registry = new InformationRegistry()
@@ -46,15 +47,22 @@ function buildRuntime(allowedInterfaces: '*' | readonly InformationInterfaceId[]
   return new InformationRuntime({ registry, accessPolicy, scopeSource: new FixedScopeSource(scope()) })
 }
 
-test('composePassiveObservations flattens every allowed interface into plain values', async () => {
+test('composePassiveObservations preserves complete read envelopes for every allowed interface', async () => {
   const runtime = buildRuntime('*')
   const result = await composePassiveObservations(runtime, {
     principalId: 'context-composer', grantId: 'grant-1', purpose: 'companion_context', correlationId: 'run-1',
   }, new AbortController().signal)
-  assert.equal(result.currentStatus?.health, 20)
-  assert.equal(result.inventory?.selectedHotbarSlot, 0)
-  assert.deepEqual(result.sound?.recentSounds, [])
-  assert.equal(result.viewport?.lookedAtBlock, null)
+  const currentStatus = result.reads.find(read => read.interfaceId === 'current_status')
+  const inventory = result.reads.find(read => read.interfaceId === 'inventory_information')
+  const sound = result.reads.find(read => read.interfaceId === 'sound_information')
+  const viewport = result.reads.find(read => read.interfaceId === 'viewport_information')
+  assert.match(result.catalogRevision ?? '', /^catalog:/u)
+  assert.equal(currentStatus?.values.health, 20)
+  assert.equal(inventory?.values.selectedHotbarSlot, 0)
+  assert.deepEqual(sound?.values.recentSounds, [])
+  assert.equal(viewport?.values.lookedAtBlock, null)
+  assert.equal(typeof currentStatus?.readId, 'string')
+  assert.equal(currentStatus?.source.kind, 'hud_projection')
   assert.deepEqual(result.omissions, [])
 })
 
@@ -63,8 +71,8 @@ test('composePassiveObservations records an omission instead of throwing when ac
   const result = await composePassiveObservations(runtime, {
     principalId: 'context-composer', grantId: 'grant-1', purpose: 'companion_context', correlationId: 'run-1',
   }, new AbortController().signal)
-  assert.equal(result.currentStatus?.health, 20)
-  assert.equal(result.inventory, undefined)
+  assert.equal(result.reads.find(read => read.interfaceId === 'current_status')?.values.health, 20)
+  assert.equal(result.reads.some(read => read.interfaceId === 'inventory_information'), false)
   assert.equal(result.omissions.some((omission) => omission.interfaceId === 'inventory_information' && omission.reason === 'audience_denied'), true)
   assert.equal(result.omissions.length, 3)
 })
