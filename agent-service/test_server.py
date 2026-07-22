@@ -48,6 +48,7 @@ class DecideTest(unittest.TestCase):
 
         def fake_urlopen(request, timeout=None):  # noqa: ARG001
             captured_request["authorization"] = request.get_header("Authorization")
+            captured_request["body"] = json.loads(request.data.decode("utf-8"))
             return FakeResponse(_model_response(raw_output, {"prompt_tokens": 12, "completion_tokens": 8}))
 
         with patch("urllib.request.urlopen", side_effect=fake_urlopen):
@@ -56,6 +57,13 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(result["rawOutput"], raw_output)
         self.assertEqual(result["usage"]["outputTokens"], 8)
         self.assertEqual(captured_request["authorization"], "Bearer sk-test-secret")
+        self.assertEqual(
+            set(captured_request["body"]),
+            {"model", "temperature", "response_format", "messages"},
+        )
+        self.assertNotIn("tools", captured_request["body"])
+        self.assertNotIn("tool_choice", captured_request["body"])
+        self.assertNotIn("functions", captured_request["body"])
         self.assertNotIn("sk-test-secret", json.dumps(result))
 
     def test_decide_rejects_non_json_content(self) -> None:
