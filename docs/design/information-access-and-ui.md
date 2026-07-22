@@ -115,7 +115,7 @@ type InformationQueryRequest<Field extends string = string, Selector = Informati
     }
 ```
 
-模型只面对 `information_catalog` 与 `information` 两个工具；17 个逻辑信息接口都通过 `information` 的 `interfaceId + operation` 访问，不注册为 17 个 model-facing 工具。`help/all` 返回当前版本理论支持的字段；`help/current` 同时给出此刻是否可读和不可读原因。Help 是接口元数据，不是世界观察，不能借此泄露当前值。具体模块边界见 [Information Runtime 模块设计](./information-runtime.md)。
+17 个逻辑信息接口统一使用 `interfaceId + operation: help | read` 协议，不注册为 17 个 model-facing 工具。`help/all` 返回当前版本理论支持的字段；`help/current` 同时给出此刻是否可读和不可读原因。Help 是接口元数据，不是世界观察，不能借此泄露当前值。当前生产模型不直接调用 Catalog/Help/Read；Context Composer 从受信任 Runtime 预先组合有界的被动观察。具体模块边界见 [Information Runtime 模块设计](./information-runtime.md)。
 
 ```ts
 type InformationSourceKind =

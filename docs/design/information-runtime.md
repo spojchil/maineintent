@@ -8,18 +8,18 @@
 >
 > 上游：[合法信息接口、Help 发现与 UI 会话](./information-access-and-ui.md)
 >
-> 下游：#54、#55、#56、#34、#57、#59，以及新的 Context/Model Tool Session
+> 下游：#54、#55、#56、#34、#57、#59，以及 Context Composer、Grounding 与 scoped controller
 
 ## 1. 决定
 
 MineIntent 使用一个统一 `InformationRuntime` 作为所有认知信息的唯一入口：
 
-- 模型面对两个工具：`information_catalog` 和 `information`；
+- Runtime 向受信任的内部消费者提供 Catalog、Help 和 Read；当前不将它们注册为 model-facing 工具；
 - `information` 通过 `interfaceId + operation: help | read` 访问所有信息接口；
 - 每类信息由一个强类型 Provider 实现，不建立一个包含所有字段的巨大快照；
 - Runtime 统一负责注册、audience、schema、字段选择、selector/cursor、限额、错误、证据和 trace；
 - Provider 只负责把最小来源端口转换成该接口允许公开的字段；
-- Context Composer、模型工具调用、Grounding 和后续 controller 都必须经过同一个 Runtime；
+- Context Composer、Grounding 和后续 controller 都必须经过同一个 Runtime；
 - `MinecraftSnapshotV1`、Mineflayer `Bot`、raw entity/block 表和测试 oracle 不得成为旁路输入。
 
 “统一接口”指统一调用和治理协议，不表示所有 Provider 共享同一个值 schema，也不表示把 Minecraft 领域语义抽象成通用环境框架。
@@ -68,8 +68,8 @@ Provider-owned projection / Perception Boundary
 └─────────────────────────────────────────────────────┘
        │                    │                    │
        ▼                    ▼                    ▼
-Context Composer      Model Tool Session     Scoped Controller
-companion grant       companion grant        bounded grant
+Context Composer          Grounding          Scoped Controller
+companion grant       evidence-bound refs      bounded grant
        │                    │                    │
        └────────────── Information Read IDs ────┘
                             │
@@ -79,7 +79,9 @@ companion grant       companion grant        bounded grant
 
 Provider 之间不通过 `InformationRuntime` 互相调用。共享状态由单一投影端口提供，例如 `CurrentScreenProvider` 读取 `UiContextProjection`，而不是递归调用 `ui_context.read()`。
 
-## 4. 模型面对的统一工具
+## 4. 统一查询协议
+
+`information_catalog` 和 `information` 是 Runtime 查询协议的薄适配器，用于验证 Catalog/Help/Read 的输入、限额和取消语义。当前生产 Model Gateway 不注册这两个工具，模型只收到 Context Composer 预先选定的完整 Read envelope。如果未来重新开放主动信息获取，必须先单独评审其信息泄漏、成本和决策稳定性，不以兼容路径自动启用。
 
 ### 4.1 Catalog 工具
 
@@ -126,9 +128,9 @@ interface InformationTool {
 }
 ```
 
-模型不能传 `audience`、`principalId`、`grantId`、world、screen、source 或 evidence。Tool Session 从受信任的运行时上下文补齐这些信息。
+非受信输入不能传 `audience`、`principalId`、`grantId`、world、screen、source 或 evidence。适配器从受信任的运行时上下文补齐这些信息。
 
-### 4.3 Tool Session
+### 4.3 有界查询 Session
 
 ```ts
 interface InformationToolSessionContext {
@@ -146,7 +148,7 @@ interface InformationToolSessionContext {
 }
 ```
 
-每轮模型调用拥有一个有界 Tool Session。Catalog/Help 可以缓存，但仍计入总调用数；Read 受独立次数和字节预算限制。模型不能通过反复分页导出完整历史或绕过 Context 预算。Session 将自己的剩余 deadline 与调用方 `AbortSignal` 合并后传给 Runtime；deadline 不只是调用前检查，已经进入 Provider 的 Read 也必须被取消并返回 `deadline_exceeded`。
+该 Session 为查询适配器保留有界调用、返回字节和 deadline 语义；它不代表当前存在 model tool loop。生产 Context Composer 使用固定且已审查的小型 Read plan，同样合并剩余 deadline 与调用方 `AbortSignal`；已经进入 Provider 的 Read 也必须可取消。
 
 ## 5. Runtime 公共接口
 
@@ -180,7 +182,7 @@ interface InformationRuntimeDiagnostics {
 }
 ```
 
-`TrustedInformationCaller` 只能由 Context Composer、Model Gateway、Controller Runtime 或 Operator API 构造。Runtime 要求 caller purpose 与 grant purpose 精确相同，因此 operator grant 不能放进 Model Tool Session。自然语言、模型 JSON 和 Minecraft 聊天都不能生成 caller 或 grant。Diagnostics 是单独的 privileged composition port，不从模型、Context 或 Controller 可达。
+`TrustedInformationCaller` 只能由 Context Composer、Controller Runtime 或 Operator API 构造。Runtime 要求 caller purpose 与 grant purpose 精确相同，因此 operator grant 不能进入 Companion Context 或 Controller 查询。自然语言、模型 JSON 和 Minecraft 聊天都不能生成 caller 或 grant。`model_tool` purpose 仅为尚未接入生产的适配器契约保留，不会由 Model Gateway 签发。Diagnostics 是单独的 privileged composition port，不从模型、Context 或 Controller 可达。
 
 ## 6. Access Policy 与 grant
 
@@ -214,7 +216,7 @@ interface InformationAccessPolicy {
 
 - Companion grant 只覆盖 `audiences` 含 `companion` 的接口。
 - Controller grant 由行为运行时签发，绑定 lease、epoch、world、允许接口和可选字段集合。
-- Operator grant 由本地管理入口签发，不能进入模型 Tool Session。
+- Operator grant 由本地管理入口签发，不能进入 Companion Context 或 Controller 查询。
 - audience 是 Runtime 权限，不是 Help 字段，也不能由 Provider 根据模型文本推断。
 
 ## 7. Provider 定义
@@ -458,13 +460,13 @@ interface InformationRefStore {
 ## 11. 一次 Query 的完整流程
 
 ```text
-Tool Adapter 收到 interfaceId + help/read
-→ 从 Tool Session 构造 TrustedInformationCaller
+Context Composer/受信任适配器提交 interfaceId + help/read
+→ 从运行时授权构造 TrustedInformationCaller
 → AccessPolicy 解析 grant；失败返回 audience_denied
 → Registry 查 Provider；失败返回 unknown_interface
 → 捕获 scopeBefore
 → 严格解析 envelope；额外/重复/畸形字段返回 invalid_request
-→ 校验 caller/grant purpose、audience、interface、schema、字段、selector/cursor、limit 与 session budget
+→ 校验 caller/grant purpose、audience、interface、schema、字段、selector/cursor、limit 与调用预算
 → help: 合并静态 field definition 与 Provider.current availability
 → read: 解析 opaque ref/page state，调用 Provider
 → 校验 Provider 只返回请求字段且所有值通过 schema
@@ -593,7 +595,9 @@ class CurrentStatusProvider
 
 示例省略了其他字段分支以及 `allFields`、`unavailableResult` 辅助函数，但不省略 Runtime 校验。Provider 不能依靠 TypeScript 泛型阻止运行时模型输入，所有字段和输出仍通过 Registry schema 校验。
 
-## 13. 模型工具调用样例
+## 13. 统一查询协议样例
+
+以下是 Runtime 与内部适配器的契约样例，不表示这些请求会出现在当前模型上下文或由模型主动发出。
 
 ### 13.1 发现接口
 
@@ -833,21 +837,19 @@ interface InformationContextSection {
 
 Context Composer 根据触发事件和 Attention 选择少量 Read，例如玩家聊天时附带 `ui_context`、`current_status` 与相关当前观察。它不自动附带全部 17 个接口。
 
-### 15.2 Model Tool Session
+### 15.2 生产决策路径
 
-模型在需要额外信息时调用统一工具。Model Gateway 负责有界 tool loop：
+Model Gateway 每轮只接收一次 Context Composer 的结果，不执行 tool loop：
 
 ```text
-构造最小 Context
-→ 模型发现信息缺口
-→ information_catalog（首次或 catalog changed）
-→ information help
-→ information read
-→ 将工具结果加入同一 run
-→ 模型产生结构化决定
+按触发事件选择固定、有界的 Read plan
+→ Information Runtime 校验授权并生成完整 envelope
+→ Context Composer 组合事实输入与 omission
+→ 模型产生结构化语义决定
+→ Grounding 只接受该轮中实际出现的 read/ref
 ```
 
-Tool result 是模型事实输入，不是私有思维链。每个 Read 的 `readId` 进入 Decision trace；模型最终决定若依赖未出现的 Read ID，Coordinator 拒绝。
+Read envelope 是模型事实输入，不是私有思维链。每个 `readId` 进入 Decision trace；模型最终决定若依赖未出现的 Read/ref，Coordinator 拒绝。当前固定 Read plan 是产品边界，不允许模型通过反复分页导出完整历史或全部世界状态。
 
 ## 16. 错误与降级
 
@@ -859,7 +861,7 @@ Tool result 是模型事实输入，不是私有思维链。每个 Read 的 `rea
 | schema 变化 | `stale_schema` | 返回当前 revision |
 | selector 已失效或签发源 revision 已改变 | `invalid_selector` 或字段 `stale_selector` | 删除/拒绝 ref，丢弃读取中的结果 |
 | scope 在读取中变化 | `scope_changed` | 丢弃 Provider 结果 |
-| Tool Session 超额 | `budget_exceeded` | 停止本轮额外 Read |
+| Context Read plan 超额 | `budget_exceeded` | 停止本轮额外 Read 并记录 omission |
 | Abort/deadline | `deadline_exceeded` | 取消 Provider |
 | Provider 抛错/输出越界 | `provider_failed` | privileged telemetry；阻止结果进入认知 |
 | Registry 缺失必需 Provider | 启动失败 | 不以空接口继续运行 |
@@ -875,7 +877,7 @@ Runtime 调试状态至少包含：
 - audience 拒绝、未知字段、陈旧 schema、无效 ref/cursor 和 scope race 数量；
 - Ref/Cursor store 当前数量、容量拒绝和失效原因；
 - 每个 Provider 当前 information/source revision；
-- Tool Session 预算使用；
+- Context Read plan 的预算使用与 omission；
 - `readId → interface/fields/source/evidence/correlation` trace，不记录默认值 payload。
 
 `structured_ui_equivalent` 和显著主动观察可以产生 `information.acquired` 领域事件；普通重复 Read 默认只进入有界 trace，不把生命值轮询写满 Journal。
@@ -904,7 +906,7 @@ Runtime 调试状态至少包含：
 - Cursor 不能修改 fields/limit/selector 后续页。
 - Ref/Cursor 的 payload、page state、每次签发数以及 principal/interface/global 容量均有硬上限，超限不能淘汰其他作用域的有效项。
 - scope before/after 不同会丢弃结果。
-- Tool Session 达到调用/字节预算后确定性拒绝，session deadline 能中断已经开始的 Provider Read。
+- Context Read plan 达到调用/字节预算后确定性停止并记录 omission，deadline 能中断已经开始的 Provider Read。
 - privileged diagnostics 不进入 Companion Catalog、Read、Context 或 Journal payload。
 
 ### 18.3 第一条纵向验收
@@ -990,7 +992,7 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 
 第一条 `current_status` 纵向链通过后，由 #58 的 P4 集成收尾直接执行以下替换：
 
-1. Model Gateway 使用新的 Tool Session，不再接收 `DecisionContext.snapshot`。
+1. Model Gateway 只接收 Context Composer 组合的有源 Read envelope，不再接收 `DecisionContext.snapshot` 且不注册 Information tool loop。
 2. Context Composer 只接收 `InformationRuntime`/Information Client。
 3. Companion Runtime 删除直接 `backend.snapshot()` 认知读取。
 4. 删除 `availableSkills` 和 V1 model-facing skill schema；v0.2 不保留旧动作能力占位。
@@ -1004,9 +1006,9 @@ Perception 可以保留在 `src/perception/`，但 `ViewportProvider` 和 `Sound
 
 模块设计与 #53 完成必须同时满足：
 
-1. 两个模型工具和 `InformationRuntime` 统一入口具有可验证 schema。
+1. `InformationRuntime` 的 Catalog/Help/Read 入口具有可验证 schema，生产 Model Gateway 没有 Information tool loop。
 2. Provider contract 能表达静态字段、当前 availability、partial Read、source、evidence、selector 和分页。
-3. Registry、AccessPolicy、scope、revision、Ref/Cursor Store 和 Tool Session 责任不重叠。
+3. Registry、AccessPolicy、scope、revision、Ref/Cursor Store 和 Context Read budget 责任不重叠。
 4. Fake Provider 能验证公共 Runtime；`current_status` 样例可由 #55 直接转成第一条真实 Provider 与契约测试。
 5. UI/screen、inventory/tooltip、viewport/sound 三种共享关系不需要 Provider 递归调用。
 6. Context/Model/Controller 没有 raw Backend 或 snapshot 旁路。
