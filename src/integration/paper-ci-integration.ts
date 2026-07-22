@@ -73,7 +73,7 @@ async function companionPrototypeScenario() {
   let runtime: CompanionRuntime | undefined
   let backend: MinecraftBackend | undefined
   return runner.run({
-    name: 'companion-v0.1-vertical-slice', timeoutMs: 240_000,
+    name: 'companion-v0.3-grounded-gaze', timeoutMs: 240_000,
     setup: async ctx => {
       player = await connectBot(playerName)
       server.send(`execute at ${playerName} run fill ~-8 ~-1 ~-8 ~12 ~-1 ~8 minecraft:stone`)
@@ -129,8 +129,8 @@ async function companionPrototypeScenario() {
       ctx.record('assertion', 'danger_response_verified', { health: backend.snapshot().self.health })
 
       player!.chat('记住我们今天一起开始收集木材')
-      await waitUntil(async () => (await new FileMemoryStore(memoryFile).list('paper-ci-v0.1')).length === 1, 15_000, 'memory candidate accepted')
-      const memories = await new FileMemoryStore(memoryFile).list('paper-ci-v0.1')
+      await waitUntil(async () => (await new FileMemoryStore(memoryFile).list('paper-ci-v0.3')).length === 1, 15_000, 'memory candidate accepted')
+      const memories = await new FileMemoryStore(memoryFile).list('paper-ci-v0.3')
       assert.equal(memories.length, 1)
       assert.equal(memories[0]!.evidence.some(evidence => evidence.kind === 'event'), true)
       ctx.record('assertion', 'first_session_verified', { memoryId: memories[0]!.id })
@@ -170,7 +170,7 @@ function createPrototypeRuntime(
   session: string,
 ) {
   const backend = new MinecraftBackend({
-    worldId: 'paper-ci-v0.1', server: { host: '127.0.0.1', port, version: '1.21.1' },
+    worldId: 'paper-ci-v0.3', server: { host: '127.0.0.1', port, version: '1.21.1' },
     identity: { username: companionName, auth: 'offline' }, ...defaultMinecraftBackendConfig,
     timeouts: { connectMs: 10_000, loginMs: 20_000, spawnMs: 60_000, stopMs: 5_000 },
     reconnect: { ...defaultMinecraftBackendConfig.reconnect, initialDelayMs: 250, maxDelayMs: 1_000 },
@@ -178,7 +178,7 @@ function createPrototypeRuntime(
   const debug = new DebugStateStore()
   const runtime = new CompanionRuntime({
     backend, model, memory: new FileMemoryStore(memoryFile),
-    journal: new JsonlEventJournal(path.join(dataDirectory, `events-${session}.jsonl`), 'paper-ci-v0.1', randomUUID()),
+    journal: new JsonlEventJournal(path.join(dataDirectory, `events-${session}.jsonl`), 'paper-ci-v0.3', randomUUID()),
     profile: { profileId: 'ci-companion', versionId: 'ci-v1', content: '你是可靠、自然且诚实的 Minecraft 伙伴。', sourcePath: 'ci-profile' },
     debug, primaryPlayer: playerName, speechIntervalMs: 100,
   })
