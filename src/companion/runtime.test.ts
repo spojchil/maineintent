@@ -10,12 +10,12 @@ import type {
   BackendEventEnvelope, BackendReady, BackendState, GameBlockTarget, GameThreat, MinecraftBackendApi,
   MinecraftControlsApi, MinecraftSnapshotV1, ProtocolObservationSource, Unsubscribe, Vec3Value,
 } from '../minecraft/contracts.js'
-import type { CompanionDecision, DecisionContext, ModelProvider, ModelRunResult } from '../models/index.js'
+import type { CompanionDecisionV2, ContextPackageV2, ModelProvider, RawModelRunResult } from '../models/index.js'
 import { DebugStateStore } from '../telemetry/index.js'
 import { CompanionRuntime } from './runtime.js'
 
-test('companion runtime completes wood activity, obeys stop and recalls the episode after restart', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-'))
+test('V2 runtime applies social/state effects, rejects ungrounded execution, obeys stop and recalls memory', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-v2-'))
   try {
     const memoryFile = path.join(root, 'memories.json')
     const firstBackend = new FakeBackend()
@@ -27,22 +27,22 @@ test('companion runtime completes wood activity, obeys stop and recalls the epis
 
     firstBackend.chat('一起收集些木头吧')
     await settle(first)
-    assert.equal(firstBackend.wood, 1)
-    assert.equal(first.activity()?.status, 'active')
+    assert.equal(first.activity()?.status, 'proposed')
+    assert.equal(firstBackend.sent.some(message => message.includes('先看看')), true)
+    assert.equal(firstBackend.sent.some(message => message.includes('已经开始')), false)
+    assert.equal(JSON.stringify(firstModel.contexts).includes('collect_wood'), false)
+    assert.equal(JSON.stringify(firstModel.contexts).includes('availableSkills'), false)
 
-    firstBackend.chat('等一下')
-    await delay(30)
-    assert.equal(first.activity()?.status, 'paused')
-    assert.equal(firstBackend.controlsInstance.stops > 0, true)
-    assert.equal(firstBackend.sent.some(message => message.includes('停下')), true)
-
-    firstBackend.chat('够了，我们回刚才那里吧')
+    firstBackend.chat('记住我们今天开始一起收集木材')
     await settle(first)
-    assert.equal(first.activity()?.status, 'completed')
     const memories = await new FileMemoryStore(memoryFile).list('test-world')
     assert.equal(memories.length, 1)
-    assert.match(memories[0]!.summary, /一起收集木材/u)
-    assert.equal(memories[0]!.evidence.some(item => item.kind === 'action_result'), true)
+    assert.match(memories[0]!.summary, /一起开始收集木材/u)
+
+    firstBackend.chat('停下')
+    await delay(30)
+    assert.equal(firstBackend.controlsInstance.stops > 0, true)
+    assert.equal(firstBackend.sent.some(message => message.includes('停下')), true)
     await first.stop('restart_test')
 
     const secondBackend = new FakeBackend()
@@ -50,16 +50,13 @@ test('companion runtime completes wood activity, obeys stop and recalls the epis
     const second = createRuntime(secondBackend, secondModel, memoryFile, path.join(root, 'events-2.jsonl'))
     await second.start()
     await settle(second)
-    assert.equal(secondModel.contexts[0]?.memories.length, 1)
-    secondBackend.chat('上次我们做了什么？')
-    await settle(second)
-    assert.equal(secondBackend.sent.some(message => message.includes('收集了木材')), true)
+    assert.equal(memoryFragments(secondModel.contexts[0]!).length, 1)
     assert.equal(secondModel.debug.snapshot().decision?.retrievedMemoryIds.length, 1)
     await second.stop('test_complete')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('companion runtime waits for the self chunk to load before its first decision', async () => {
+test('V2 runtime waits for the self chunk and preserves the complete Information Read envelope', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-chunk-'))
   try {
     const backend = new FakeBackend()
@@ -68,7 +65,10 @@ test('companion runtime waits for the self chunk to load before its first decisi
     const runtime = createRuntime(backend, model, path.join(root, 'memories.json'), path.join(root, 'events.jsonl'))
     await runtime.start()
     await settle(runtime)
-    assert.equal(model.contexts[0]?.observations.viewport?.standingOnBlock?.name, 'grass_block')
+    const viewport = observationReads(model.contexts[0]!).find(read => read.interfaceId === 'viewport_information')
+    assert.deepEqual(viewport?.values.standingOnBlock, { name: 'grass_block' })
+    assert.equal(typeof viewport?.readId, 'string')
+    assert.equal('snapshot' in (model.contexts[0] as unknown as Record<string, unknown>), false)
     await runtime.stop('test_complete')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
@@ -77,58 +77,123 @@ function createRuntime(backend: FakeBackend, model: ScriptedModel, memoryFile: s
   const debug = new DebugStateStore()
   model.debug = debug
   return new CompanionRuntime({
-    backend, model, memory: new FileMemoryStore(memoryFile),
+    backend,
+    model,
+    memory: new FileMemoryStore(memoryFile),
     journal: new JsonlEventJournal(journalFile, 'test-world', `session-${Date.now()}`),
     profile: { profileId: 'test', versionId: 'v1', content: '你是可靠的朋友。', sourcePath: 'profile.md' },
-    debug, primaryPlayer: 'Alex', speechIntervalMs: 1,
+    debug,
+    primaryPlayer: 'Alex',
+    speechIntervalMs: 1,
   })
 }
 
 class ScriptedModel implements ModelProvider {
-  contexts: DecisionContext[] = []
+  contexts: ContextPackageV2[] = []
   debug = new DebugStateStore()
 
-  async run(context: DecisionContext): Promise<ModelRunResult> {
-    this.contexts.push(structuredClone(context))
-    const text = context.trigger.text ?? ''
-    if (context.trigger.type === 'startup') return result(decision({ speech: context.memories.length ? '我还记得上次的事。' : '我来了，一起玩吧。' }))
-    if (text.includes('一起收集')) return result(decision({
-      speech: '好，我们一起找树。', activity: { operation: 'start_wood_collection', summary: '和 Alex 一起收集木材' },
-      intent: { kind: 'collect', summary: '采集一块原木' }, action: { skill: 'collect_wood', args: { count: 1, maxDistance: 16 }, purpose: '参与共同收集' },
-    }))
-    if (text.includes('回刚才')) return result(decision({
-      speech: '够了，我们回去。', activity: { operation: 'complete', summary: '收集完成，回到出发地点' },
-      intent: { kind: 'return', summary: '回到活动锚点' }, action: { skill: 'return_to_anchor', args: {}, purpose: '一起返回' },
-    }))
-    if (text.includes('上次')) return result(decision({ speech: context.memories.length ? '上次我们一起收集了木材。' : '我没有找到上次的记录。' }))
-    return result(decision({ speech: null }))
+  async runDecision(input: { context: ContextPackageV2 }): Promise<RawModelRunResult> {
+    const context = structuredClone(input.context)
+    this.contexts.push(context)
+    const text = triggerText(context)
+    const triggerEventId = context.trigger.eventIds[0]!
+    if (triggerType(context) === 'startup') {
+      return result(decision(context, [{
+        id: 'speech_greeting', kind: 'speech',
+        text: memoryFragments(context).length ? '我回来了，还记得我们一起玩的事。' : '我来了，一起玩吧。',
+        audience: { kind: 'primary_player' }, timing: 'now', purpose: 'social',
+      }]))
+    }
+    if (text.includes('记住')) return result(decision(context, [{
+      id: 'memory_shared_activity', kind: 'memory_candidate', memoryKind: 'episode',
+      content: '与 Alex 一起开始收集木材。', sourceClaim: 'player_stated',
+      evidenceEventIds: [triggerEventId], subjects: ['Alex', 'companion'], confidence: 0.9,
+    }]))
+    if (text.includes('一起收集')) return result(decision(context, [
+      {
+        id: 'activity_collect', kind: 'activity', operation: 'propose', summary: '与 Alex 一起收集木材',
+        companionContribution: '一起观察环境并参与收集', reason: '玩家提出共同活动', evidenceEventIds: [triggerEventId],
+      },
+      {
+        id: 'intent_collect', kind: 'intent', operation: 'set', summary: '寻找合法可见的木材来源',
+        reason: '参与刚提出的共同活动', completionSignals: ['获得可用木材'],
+      },
+      {
+        id: 'embodied_collect', kind: 'embodied_intent', summary: '增加随身木材', desiredOutcome: '背包中有更多可用木材',
+        semanticGoal: {
+          schema: 'mineintent.semantic-goal.v1',
+          objective: { kind: 'state', state: {
+            id: 'state_wood_available', concept: 'inventory.contains_material', description: '自身背包含有至少一份木材',
+            arguments: {
+              subject: { kind: 'self' }, material: { kind: 'value', value: 'wood' }, minimum: { kind: 'value', value: 1, unit: 'item' },
+            },
+          } },
+          methodGuidance: [],
+        },
+        referents: [], constraints: { maxDurationMs: 60_000, interruptibility: 'immediate' },
+      },
+      {
+        id: 'speech_observe', kind: 'speech', text: '我先看看周围。', audience: { kind: 'primary_player' },
+        timing: 'now', purpose: 'coordinate',
+      },
+      {
+        id: 'speech_started', kind: 'speech', text: '我已经开始收集了。', audience: { kind: 'primary_player' },
+        timing: 'after_intent_accepted', dependsOn: ['embodied_collect'], purpose: 'coordinate',
+      },
+    ]))
+    return result(decision(context, []))
   }
 }
 
-function decision(overrides: Partial<CompanionDecision>): CompanionDecision {
+function decision(context: ContextPackageV2, effects: CompanionDecisionV2['effects']): CompanionDecisionV2 {
   return {
-    protocol: 'mineintent.companion-decision.v1', speech: null,
-    attention: { kind: 'player', target: 'Alex' }, activity: { operation: 'keep', summary: '保持当前活动' },
-    intent: { kind: 'observe', summary: '留意玩家和环境' }, action: null, memory: null, ...overrides,
+    protocol: 'mineintent.decision.v2',
+    runId: context.ref.runId,
+    context: structuredClone(context.ref),
+    summary: effects.length ? '回应当前情境并提出必要效果' : '暂时观察，不产生新效果',
+    effects,
   }
 }
-function result(value: CompanionDecision): ModelRunResult { return { decision: value, model: 'scripted-test' } }
+
+function result(rawOutput: CompanionDecisionV2): RawModelRunResult {
+  return { rawOutput, model: 'scripted-test' }
+}
+
+function triggerType(context: ContextPackageV2): string {
+  const fragment = context.fragments.find(item => item.id === 'fragment_trigger')
+  return String((fragment?.content as Record<string, unknown> | undefined)?.type ?? '')
+}
+
+function triggerText(context: ContextPackageV2): string {
+  const fragment = context.fragments.find(item => item.id === 'fragment_trigger')
+  return String((fragment?.content as Record<string, unknown> | undefined)?.text ?? '')
+}
+
+function memoryFragments(context: ContextPackageV2) {
+  return context.fragments.filter(fragment => fragment.section === 'retrieved_memories')
+}
+
+function observationReads(context: ContextPackageV2): Array<Record<string, any>> {
+  return context.fragments
+    .filter(fragment => fragment.section === 'observations')
+    .map(fragment => fragment.content)
+    .filter((content): content is Record<string, any> => Boolean(content && typeof content === 'object' && 'interfaceId' in content))
+}
 
 class FakeControls implements MinecraftControlsApi {
   constructor(readonly owner: FakeBackend) {}
   stops = 0
-  findNearestBlock(): GameBlockTarget { return { name: 'oak_log', position: { x: 2, y: 64, z: 0 } } }
+  findNearestBlock(): GameBlockTarget | undefined { return undefined }
   async navigateNear(position: Vec3Value): Promise<void> { this.owner.position = { ...position } }
   async navigateToPlayer(): Promise<void> { this.owner.position = { x: 0, y: 64, z: 1 } }
-  async dig(position: Vec3Value): Promise<GameBlockTarget> { this.owner.wood++; return { name: 'oak_log', position } }
-  inventoryCount(): number { return this.owner.wood }
+  async dig(position: Vec3Value): Promise<GameBlockTarget> { return { name: 'oak_log', position } }
+  inventoryCount(): number { return 0 }
   nearestThreat(): GameThreat | undefined { return undefined }
   stop(): void { this.stops++ }
 }
 
 class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   position = { x: 0, y: 64, z: 0 }
-  wood = 0
   sent: string[] = []
   controlsInstance = new FakeControls(this)
   chunkLoadsAfterReadBlockCalls = 0
@@ -148,7 +213,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
       capturedAt: new Date().toISOString(), processSessionId: 'session', connectionEpoch: 1, connectionAttemptId: 'attempt',
       world: { worldId: 'test-world', dimension: 'overworld', minecraftVersion: '1.21.1', protocolVersion: 767, gameMode: 'survival', minY: -64, height: 384, timeOfDay: 1000 },
       self: { entityKey: 'self', username: 'MineIntentBot', position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, onGround: true, alive: true, health: 20, food: 20, foodSaturation: 5, effects: [] },
-      inventory: { selectedHotbarSlot: 0, slots: this.wood ? [{ slot: 9, itemName: 'oak_log', count: this.wood }] : [] },
+      inventory: { selectedHotbarSlot: 0, slots: [] },
       trackedPlayers: [{ playerKey: 'alex', username: 'Alex', listed: true, entityTracked: true, position: { x: 0, y: 64, z: 1 } }],
     }
   }
@@ -156,6 +221,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   observationSource(): ProtocolObservationSource {
     return {
       epoch: () => 1,
+      revision: () => this.#revision,
       selfPose: () => ({ position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0 }),
       listTrackedEntities: () => [{
         entityKey: '1:alex', protocolEntityId: 1, type: 'player', username: 'Alex',

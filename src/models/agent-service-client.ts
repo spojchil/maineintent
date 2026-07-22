@@ -1,4 +1,6 @@
-import { companionDecisionSchema, type DecisionContext, type ModelProvider, type ModelRunResult } from './contracts.js'
+import { z } from 'zod'
+import type { ContextPackageV2, ModelProvider, RawModelRunResult } from './contracts.js'
+import { readJsonResponse, stringifyJson } from './json-transport.js'
 
 interface FetchLike { (input: string | URL, init?: RequestInit): Promise<Response> }
 
@@ -7,6 +9,19 @@ export interface AgentServiceOptions {
   timeoutMs?: number
   fetch?: FetchLike
 }
+
+const usageSchema = z.strictObject({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+})
+
+const successResponseSchema = z.strictObject({
+  rawOutput: z.unknown(),
+  model: z.string().min(1).max(256),
+  usage: usageSchema.optional(),
+})
+
+const errorResponseSchema = z.strictObject({ error: z.string().min(1).max(2_000) })
 
 export class AgentServiceModelProvider implements ModelProvider {
   readonly #endpoint: URL
@@ -19,17 +34,25 @@ export class AgentServiceModelProvider implements ModelProvider {
     this.#fetch = options.fetch ?? fetch
   }
 
-  async run(context: DecisionContext, signal: AbortSignal): Promise<ModelRunResult> {
+  async runDecision(input: {
+    context: ContextPackageV2
+    outputSchema: object
+    signal: AbortSignal
+  }): Promise<RawModelRunResult> {
     const timeout = AbortSignal.timeout(this.#timeoutMs)
-    const combined = AbortSignal.any([signal, timeout])
+    const combined = AbortSignal.any([input.signal, timeout])
+    const body = stringifyJson({ context: input.context, outputSchema: input.outputSchema })
     const response = await this.#fetch(this.#endpoint, {
       method: 'POST', signal: combined,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(context),
+      body,
     })
-    const payload = await response.json() as { error?: string; decision?: unknown; model?: string; usage?: { inputTokens?: number; outputTokens?: number } }
-    if (!response.ok) throw new Error(`Agent service request failed (${response.status}): ${payload.error ?? 'unknown error'}`)
-    const decision = companionDecisionSchema.parse(payload.decision)
-    return { decision, model: payload.model ?? 'unknown', ...(payload.usage ? { usage: payload.usage } : {}) }
+    const payload = await readJsonResponse(response)
+    if (!response.ok) {
+      const error = errorResponseSchema.safeParse(payload)
+      throw new Error(`Agent service request failed (${response.status}): ${error.success ? error.data.error : 'invalid error response'}`)
+    }
+    const result = successResponseSchema.parse(payload)
+    return { rawOutput: result.rawOutput, model: result.model, ...(result.usage ? { usage: result.usage } : {}) }
   }
 }

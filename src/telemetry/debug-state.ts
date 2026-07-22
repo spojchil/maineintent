@@ -1,19 +1,12 @@
-import type { BodyResource } from '../actions/contracts.js'
 import type { CompanionDebugState, DebugFailureSummary, DebugStateInput } from './contracts.js'
 
-const EMPTY_LOCKS: Readonly<Record<BodyResource, string | undefined>> = Object.freeze({
-  locomotion: undefined,
-  gaze: undefined,
-  hands: undefined,
-  inventory: undefined,
-  interaction: undefined,
-})
+const EMPTY_LEASES: Readonly<Record<string, string>> = Object.freeze({})
 
 export class DebugStateStore {
   #revision = 0
   #state: DebugStateInput = {
     connection: { status: 'idle' },
-    resourceLocks: EMPTY_LOCKS,
+    resourceLeases: EMPTY_LEASES,
     recentFailures: [],
     decision: { status: 'idle', contextSources: [], retrievedMemoryIds: [] },
   }

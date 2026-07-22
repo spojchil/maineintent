@@ -93,33 +93,30 @@ async function companionPrototypeScenario() {
       await waitUntil(() => distance(backend!.snapshot().self.position, player!.entity.position) < 3, 10_000, 'companion fixture teleport')
       await waitUntil(() => messages.some(message => message.includes('我来了')), 10_000, 'natural greeting')
 
+      const woodBeforeProposal = woodCount(backend.snapshot())
       player!.chat('一起收集些木头吧')
-      await waitUntil(() => first.debug.snapshot().currentAction?.skill === 'collect_wood', 15_000, 'wood collection action')
-      const activityAnchor = runtime.activity()?.anchor
-      assert.ok(activityAnchor)
-      player!.chat('等一下')
-      await waitUntil(() => runtime!.activity()?.status === 'paused' && !first.debug.snapshot().currentAction, 15_000, 'deterministic pause')
-      await waitUntil(() => messages.some(message => message.includes('停下')), 5_000, 'pause acknowledgement')
-      ctx.record('assertion', 'pause_verified', { wood: woodCount(backend.snapshot()) })
+      await waitUntil(() => messages.some(message => message.includes('先观察')), 15_000, 'V2 observation response')
+      assert.equal(runtime.activity()?.status, 'proposed')
+      assert.equal(first.debug.snapshot().currentBehavior, undefined)
+      assert.equal(woodCount(backend.snapshot()), woodBeforeProposal)
+      ctx.record('assertion', 'legacy_skill_fallback_absent', { wood: woodBeforeProposal })
 
-      const woodBeforeResume = woodCount(backend.snapshot())
-      player!.chat('继续吧')
-      await waitUntil(() => woodCount(backend!.snapshot()) >= woodBeforeResume + 2, 60_000, 'verified wood pickup after resume')
-      ctx.record('assertion', 'resume_and_pickup_verified', { before: woodBeforeResume, after: woodCount(backend.snapshot()) })
+      player!.chat('等一下')
+      await waitUntil(() => messages.some(message => message.includes('停下')), 5_000, 'pause acknowledgement')
+      ctx.record('assertion', 'stop_verified', { wood: woodCount(backend.snapshot()) })
 
       server.send(`damage ${companionName} 13`)
-      await waitUntil(() => messages.some(message => message.includes('有危险')), 15_000, 'danger warning')
+      await waitUntil(() => messages.some(message => message.includes('受伤了')), 15_000, 'danger warning')
       server.send(`effect give ${companionName} minecraft:instant_health 1 5 true`)
       await waitUntil(() => backend!.snapshot().self.health > 8, 10_000, 'companion healed')
       ctx.record('assertion', 'danger_response_verified', { health: backend.snapshot().self.health })
 
-      player!.chat('够了，我们回刚才那里吧')
-      await waitUntil(() => runtime!.activity()?.status === 'completed', 90_000, 'activity completion')
-      assert.equal(distance(backend.snapshot().self.position, activityAnchor) <= 3, true)
+      player!.chat('记住我们今天一起开始收集木材')
+      await waitUntil(async () => (await new FileMemoryStore(memoryFile).list('paper-ci-v0.1')).length === 1, 15_000, 'memory candidate accepted')
       const memories = await new FileMemoryStore(memoryFile).list('paper-ci-v0.1')
       assert.equal(memories.length, 1)
-      assert.equal(memories[0]!.evidence.some(evidence => evidence.kind === 'action_result'), true)
-      ctx.record('assertion', 'first_session_verified', { wood: woodCount(backend.snapshot()), memoryId: memories[0]!.id })
+      assert.equal(memories[0]!.evidence.some(evidence => evidence.kind === 'event'), true)
+      ctx.record('assertion', 'first_session_verified', { memoryId: memories[0]!.id })
 
       await runtime.stop('prototype_restart')
       runtime = undefined; backend = undefined
@@ -130,7 +127,7 @@ async function companionPrototypeScenario() {
       runtime = second.runtime; backend = second.backend
       await runtime.start()
       server.send(`tp ${companionName} ${player!.entity.position.x} ${player!.entity.position.y} ${player!.entity.position.z + 1}`)
-      await waitUntil(() => secondModel.contexts[0]?.memories.length === 1, 15_000, 'startup memory retrieval')
+      await waitUntil(() => secondModel.contexts[0]?.fragments.filter(fragment => fragment.section === 'retrieved_memories').length === 1, 15_000, 'startup memory retrieval')
       const messageStart = messages.length
       player!.chat('上次我们做了什么？')
       await waitUntil(() => messages.slice(messageStart).some(message => message.includes('上次我们一起收集了木材')), 20_000, 'cross-session memory answer')
@@ -290,7 +287,7 @@ function lifecycleType(event: BackendEventEnvelope): string | undefined { return
 function woodCount(snapshot: ReturnType<MinecraftBackend['snapshot']>): number { return snapshot.inventory.slots.filter(slot => slot.itemName.endsWith('_log') || slot.itemName.endsWith('_stem')).reduce((sum, slot) => sum + slot.count, 0) }
 function distance(left: { x: number; y: number; z: number }, right: { x: number; y: number; z: number }): number { return Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z) }
 async function waitFor(events: BackendEventEnvelope[], predicate: (event: BackendEventEnvelope) => boolean, description: string, timeout = 30_000) { return waitUntil(() => events.find(predicate), timeout, description) }
-async function waitUntil<T>(predicate: () => T | undefined | false, timeoutMs: number, description: string): Promise<T> { const start = Date.now(); while (Date.now() - start < timeoutMs) { const value = predicate(); if (value) return value; await delay(25) } throw new Error(`Timed out waiting for ${description}`) }
+async function waitUntil<T>(predicate: () => T | undefined | false | Promise<T | undefined | false>, timeoutMs: number, description: string): Promise<T> { const start = Date.now(); while (Date.now() - start < timeoutMs) { const value = await predicate(); if (value) return value; await delay(25) } throw new Error(`Timed out waiting for ${description}`) }
 function delay(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)) }
 function required(name: string): string { const value = process.env[name]; if (!value) throw new Error(`${name} is required`); return path.resolve(value) }
 

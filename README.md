@@ -51,6 +51,7 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 ## 技术基线
 
 - Node.js 22 或更高版本。
+- Python 3.12 或更高版本（本地模型传输服务，仅使用标准库）。
 - TypeScript、ESM、pnpm。
 - Mineflayer 作为第一版 Minecraft Backend。
 - Minecraft Java Edition 1.21.1 测试服务器。
@@ -75,6 +76,7 @@ pnpm check
 
 ```powershell
 pnpm test
+pnpm test:python
 ```
 
 ## 运行首个同伴原型
@@ -97,7 +99,7 @@ pnpm start
 
 同伴通过游戏聊天与主要玩家交流。默认调试状态位于 `http://127.0.0.1:3211/v1/state`；该接口只有 GET 能力，不提供游戏控制，并会遮盖密钥、令牌和原始私人正文。
 
-决策层（prompt 构造、OpenAI-compatible 调用与结果校验）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互，边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。模型密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
+模型传输层（prompt 构造与 OpenAI-compatible 调用）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互；决策协议与业务校验的唯一权威在 TypeScript 侧。边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。模型密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
 
 在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 生命周期集成验收：
 

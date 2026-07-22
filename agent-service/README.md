@@ -1,11 +1,14 @@
 # agent-service
 
-同伴决策层：把 `CompanionRuntime` 传来的 `DecisionContext` 转成一次 OpenAI-compatible Chat
-Completions 调用，验证并返回 `CompanionDecision`。与 `src/minecraft/`（Mineflayer 协议驱动）
+同伴模型传输层：把 `CompanionRuntime` 传来的上下文转成一次 OpenAI-compatible Chat
+Completions 调用，并把严格 JSON 模型输出原样返回。与 `src/minecraft/`（Mineflayer 协议驱动）
 彻底分离，只通过 `src/models/agent-service-client.ts` 这一层 HTTP JSON 接口交互，因此可以独立于
 Node 进程运行、审查和测试。
 
-只依赖 Python 标准库，无需安装任何包。
+业务决策 schema 的唯一运行时权威在 TypeScript 侧；Python 不复制或修复该 schema。两侧传输均拒绝
+非标准 JSON、非有限数、不安全整数、非法 Unicode 和超过 1 MiB 的信封。
+
+需要 Python 3.12 或更高版本，只依赖标准库，无需安装任何包。
 
 ## 运行
 
@@ -27,13 +30,14 @@ pnpm start
 
 ## 接口
 
-- `POST /v1/decide`：请求体是完整的 `DecisionContext`（见 `src/models/contracts.ts`），
-  返回 `{decision, model, usage}`。`decision` 保证通过 `schema.py` 的
-  `mineintent.companion-decision.v1` 校验，字段约束与 Node 侧 zod schema 逐项对应。
+- `POST /v1/decide`：请求体是 `{context, outputSchema}`；`context` 必须是完整的
+  `mineintent.context.v2`，`outputSchema` 由 TypeScript 侧的运行时 schema 生成。返回
+  `{rawOutput, model, usage}`。`rawOutput` 只保证是严格且有界的 JSON；Node 侧负责协议、
+  schema、引用与语义校验。
 - `GET /healthz`：存活探测，返回 `{"status": "ok"}`。
 
 ## 测试
 
 ```powershell
-python -m unittest agent-service/test_server.py -v
+pnpm test:python
 ```

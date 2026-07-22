@@ -1,44 +1,79 @@
-import type { CompanionDecision, DecisionContext, ModelProvider, ModelRunResult } from '../models/index.js'
+import type { CompanionDecisionV2, ContextPackageV2, ModelProvider, RawModelRunResult } from '../models/index.js'
 
 export class PrototypeScenarioModel implements ModelProvider {
-  readonly contexts: DecisionContext[] = []
+  readonly contexts: ContextPackageV2[] = []
 
-  async run(context: DecisionContext): Promise<ModelRunResult> {
-    this.contexts.push(structuredClone(context))
-    const text = context.trigger.text ?? ''
-    if (context.trigger.type === 'startup') return result(decision({
-      speech: context.memories.length ? '我回来了，还记得上次一起收集木材。' : '我来了，今天一起做点什么？',
-    }))
-    if (text.includes('一起收集')) return result(decision({
-      speech: '好，我们一起找附近的树。',
-      activity: { operation: 'start_wood_collection', summary: '和主要玩家一起收集木材' },
-      intent: { kind: 'collect', summary: '寻找并采集附近的原木' },
-      action: { skill: 'collect_wood', args: { count: 4, maxDistance: 24 }, purpose: '参与共同收集木材' },
-    }))
-    if (text.includes('继续')) return result(decision({
-      speech: '好，继续收一点。', activity: { operation: 'resume', summary: '继续共同收集木材' },
-      intent: { kind: 'collect', summary: '继续采集两块原木' },
-      action: { skill: 'collect_wood', args: { count: 2, maxDistance: 24 }, purpose: '恢复共同收集' },
-    }))
-    if (text.includes('回刚才') || text.includes('回去')) return result(decision({
-      speech: '够了，我们回刚才那里。', activity: { operation: 'complete', summary: '收集完成并返回活动起点' },
-      intent: { kind: 'return', summary: '返回共同活动的起点' },
-      action: { skill: 'return_to_anchor', args: {}, purpose: '和玩家一起返回' },
-    }))
-    if (text.includes('上次')) return result(decision({
-      speech: context.memories.some(memory => memory.summary.includes('收集木材'))
-        ? '上次我们一起收集了木材，后来回到了开始的地方。' : '我没有找到那段共同经历。',
-    }))
-    return result(decision({ speech: null }))
+  async runDecision(input: { context: ContextPackageV2 }): Promise<RawModelRunResult> {
+    const context = structuredClone(input.context)
+    this.contexts.push(context)
+    const text = triggerText(context)
+    const eventId = context.trigger.eventIds[0]!
+    if (triggerType(context) === 'startup') return result(decision(context, [{
+      id: 'speech_startup', kind: 'speech',
+      text: memoryFragments(context).length ? '我回来了，还记得上次一起收集木材。' : '我来了，今天一起做点什么？',
+      audience: { kind: 'primary_player' }, timing: 'now', purpose: 'social',
+    }]))
+    if (text.includes('一起收集')) return result(decision(context, [
+      {
+        id: 'activity_collect', kind: 'activity', operation: 'propose', summary: '和主要玩家一起收集木材',
+        companionContribution: '观察环境并一起参与', reason: '玩家提出共同活动', evidenceEventIds: [eventId],
+      },
+      {
+        id: 'intent_collect', kind: 'intent', operation: 'set', summary: '寻找有证据的木材来源',
+        reason: '参与共同活动', completionSignals: ['背包中的木材增加'],
+      },
+      {
+        id: 'embodied_collect', kind: 'embodied_intent', summary: '增加可用木材', desiredOutcome: '背包中有更多木材',
+        semanticGoal: {
+          schema: 'mineintent.semantic-goal.v1',
+          objective: { kind: 'state', state: {
+            id: 'wood_available', concept: 'inventory.contains_material', description: '自身背包含有更多木材',
+            arguments: { subject: { kind: 'self' }, material: { kind: 'value', value: 'wood' } },
+          } },
+          methodGuidance: [],
+        },
+        referents: [], constraints: { maxDurationMs: 120_000, interruptibility: 'immediate' },
+      },
+      {
+        id: 'speech_observe', kind: 'speech', text: '好，我先观察一下周围。',
+        audience: { kind: 'primary_player' }, timing: 'now', purpose: 'coordinate',
+      },
+    ]))
+    if (text.includes('记住')) return result(decision(context, [{
+      id: 'memory_activity', kind: 'memory_candidate', memoryKind: 'episode',
+      content: '与主要玩家一起开始收集木材。', sourceClaim: 'player_stated',
+      evidenceEventIds: [eventId], subjects: ['primary_player', 'companion'], confidence: 0.9,
+    }]))
+    if (text.includes('上次')) return result(decision(context, [{
+      id: 'speech_recall', kind: 'speech',
+      text: memoryFragments(context).length ? '上次我们一起开始收集木材。' : '我没有找到那段共同经历。',
+      audience: { kind: 'primary_player' }, timing: 'now', purpose: 'reply',
+    }]))
+    return result(decision(context, []))
   }
 }
 
-function decision(overrides: Partial<CompanionDecision>): CompanionDecision {
+function decision(context: ContextPackageV2, effects: CompanionDecisionV2['effects']): CompanionDecisionV2 {
   return {
-    protocol: 'mineintent.companion-decision.v1', speech: null,
-    attention: { kind: 'player', target: 'IntentPlayerCI' }, activity: { operation: 'keep', summary: '保持当前共同活动' },
-    intent: { kind: 'observe', summary: '留意玩家和环境' }, action: null, memory: null, ...overrides,
+    protocol: 'mineintent.decision.v2', runId: context.ref.runId, context: structuredClone(context.ref),
+    summary: effects.length ? '根据当前情境提出效果' : '继续观察', effects,
   }
 }
 
-function result(value: CompanionDecision): ModelRunResult { return { decision: value, model: 'prototype-scenario-model' } }
+function result(rawOutput: CompanionDecisionV2): RawModelRunResult {
+  return { rawOutput, model: 'prototype-scenario-model' }
+}
+
+function triggerType(context: ContextPackageV2): string {
+  const content = context.fragments.find(fragment => fragment.id === 'fragment_trigger')?.content
+  return String((content as Record<string, unknown> | undefined)?.type ?? '')
+}
+
+function triggerText(context: ContextPackageV2): string {
+  const content = context.fragments.find(fragment => fragment.id === 'fragment_trigger')?.content
+  return String((content as Record<string, unknown> | undefined)?.text ?? '')
+}
+
+function memoryFragments(context: ContextPackageV2) {
+  return context.fragments.filter(fragment => fragment.section === 'retrieved_memories')
+}
