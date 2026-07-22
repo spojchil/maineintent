@@ -8,6 +8,7 @@
     "dev": "tsx src/main.ts",
     "start": "tsx src/main.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:python": "python -m unittest discover -s agent-service -p \"test_*.py\" -v",
     "test:paper": "tsx src/minecraft/paper-integration.ts",
     "test:paper:ci": "tsx src/integration/paper-ci-integration.ts"
   },
