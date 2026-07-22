@@ -261,20 +261,20 @@ export interface GameBlockTarget {
   position: BlockPosition
 }
 
-export interface GameThreat {
-  name: string
-  position: Vec3Value
-  distance: number
+export interface MotorDigFeedback extends GameBlockTarget {
+  stage: 'client_predicted'
 }
 
-export interface MinecraftControlsApi {
-  findNearestBlock(names: readonly string[], maxDistance: number): GameBlockTarget | undefined
-  navigateNear(position: Vec3Value, range: number, signal: AbortSignal): Promise<void>
-  navigateToPlayer(username: string, range: number, signal: AbortSignal): Promise<void>
-  dig(position: BlockPosition, signal: AbortSignal): Promise<GameBlockTarget>
-  inventoryCount(names: readonly string[]): number
-  nearestThreat(maxDistance: number): GameThreat | undefined
-  stop(): void
+/**
+ * Driver-private body primitives. They neither select targets nor claim semantic success.
+ * Only scoped controllers may consume this port; it is never a model-facing tool catalog.
+ */
+export interface MinecraftMotorDriverApi {
+  /** Sends one bounded yaw/pitch target chosen by a controller. */
+  look(yaw: number, pitch: number, signal: AbortSignal): Promise<void>
+  /** Returns client prediction only; server/outcome verification happens above the driver. */
+  dig(position: BlockPosition, signal: AbortSignal): Promise<MotorDigFeedback>
+  releaseAll(): void
 }
 
 export interface MinecraftBackendApi {
@@ -284,6 +284,6 @@ export interface MinecraftBackendApi {
   snapshot(): Readonly<MinecraftSnapshotV1>
   subscribe(listener: (event: BackendEventEnvelope) => void): Unsubscribe
   observationSource(): ProtocolObservationSource
-  controls(): MinecraftControlsApi
+  motor(): MinecraftMotorDriverApi
   sendChat(message: string): void
 }

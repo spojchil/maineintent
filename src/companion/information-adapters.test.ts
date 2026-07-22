@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
 import type {
-  BackendEventEnvelope, BackendReady, BackendState, MinecraftBackendApi, MinecraftControlsApi,
+  BackendEventEnvelope, BackendReady, BackendState, MinecraftBackendApi, MinecraftMotorDriverApi,
   MinecraftSnapshotV1, ProtocolObservationSource, Unsubscribe,
 } from '../minecraft/contracts.js'
 import {
@@ -42,7 +42,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
       subscribe: () => () => {},
     }
   }
-  controls(): MinecraftControlsApi { throw new Error('not used') }
+  motor(): MinecraftMotorDriverApi { throw new Error('not used') }
   sendChat(): void {}
   emitSound(sourcePosition: { x: number; y: number; z: number }, occurredAt = new Date().toISOString()): void {
     this.emit('backend', {

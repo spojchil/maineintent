@@ -7,8 +7,8 @@ import { test } from 'node:test'
 import { JsonlEventJournal } from '../events/index.js'
 import { FileMemoryStore } from '../memory/index.js'
 import type {
-  BackendEventEnvelope, BackendReady, BackendState, GameBlockTarget, GameThreat, MinecraftBackendApi,
-  MinecraftControlsApi, MinecraftSnapshotV1, ProtocolObservationSource, Unsubscribe, Vec3Value,
+  BackendEventEnvelope, BackendReady, BackendState, MinecraftBackendApi, MinecraftMotorDriverApi,
+  MinecraftSnapshotV1, MotorDigFeedback, ProtocolObservationSource, Unsubscribe,
 } from '../minecraft/contracts.js'
 import type { CompanionDecisionV2, ContextPackageV2, ModelProvider, RawModelRunResult } from '../models/index.js'
 import { DebugStateStore } from '../telemetry/index.js'
@@ -41,7 +41,7 @@ test('V2 runtime applies social/state effects, rejects ungrounded execution, obe
 
     firstBackend.chat('停下')
     await delay(30)
-    assert.equal(firstBackend.controlsInstance.stops > 0, true)
+    assert.equal(firstBackend.motorInstance.releases > 0, true)
     assert.equal(firstBackend.sent.some(message => message.includes('停下')), true)
     await first.stop('restart_test')
 
@@ -181,22 +181,20 @@ function observationReads(context: ContextPackageV2): Array<Record<string, any>>
     .filter((content): content is Record<string, any> => Boolean(content && typeof content === 'object' && 'interfaceId' in content))
 }
 
-class FakeControls implements MinecraftControlsApi {
+class FakeMotor implements MinecraftMotorDriverApi {
   constructor(readonly owner: FakeBackend) {}
-  stops = 0
-  findNearestBlock(): GameBlockTarget | undefined { return undefined }
-  async navigateNear(position: Vec3Value): Promise<void> { this.owner.position = { ...position } }
-  async navigateToPlayer(): Promise<void> { this.owner.position = { x: 0, y: 64, z: 1 } }
-  async dig(position: Vec3Value): Promise<GameBlockTarget> { return { name: 'oak_log', position } }
-  inventoryCount(): number { return 0 }
-  nearestThreat(): GameThreat | undefined { return undefined }
-  stop(): void { this.stops++ }
+  releases = 0
+  async look(): Promise<void> {}
+  async dig(position: { x: number; y: number; z: number }): Promise<MotorDigFeedback> {
+    return { stage: 'client_predicted', name: 'oak_log', position }
+  }
+  releaseAll(): void { this.releases++ }
 }
 
 class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   position = { x: 0, y: 64, z: 0 }
   sent: string[] = []
-  controlsInstance = new FakeControls(this)
+  motorInstance = new FakeMotor(this)
   chunkLoadsAfterReadBlockCalls = 0
   #state: BackendState = { status: 'idle' }
   #revision = 0
@@ -238,7 +236,7 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
       subscribe: () => () => {},
     }
   }
-  controls(): MinecraftControlsApi { return this.controlsInstance }
+  motor(): MinecraftMotorDriverApi { return this.motorInstance }
   sendChat(message: string): void { this.sent.push(message) }
   chat(text: string): void {
     this.emit('backend', {

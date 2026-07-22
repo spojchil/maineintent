@@ -151,7 +151,7 @@ export class CompanionRuntime {
     if (!this.#started) return
     this.#started = false
     this.#modelAbort?.abort(reason)
-    try { this.#backend.controls().stop() } catch { /* backend may already be disconnected */ }
+    try { this.#backend.motor().releaseAll() } catch { /* backend may already be disconnected */ }
     await Promise.allSettled([...this.#backgroundTasks])
     await this.#decisionTail
     this.#speech.stop(reason)
@@ -194,7 +194,7 @@ export class CompanionRuntime {
     this.#pushRecent(journalEvent.id, journalEvent.type, `${message.sender.username}: ${message.text}`)
     if (message.controlIntent === 'safety_stop') {
       this.#modelAbort?.abort('player_safety_stop')
-      try { this.#backend.controls().stop() } catch { /* lifecycle race */ }
+      try { this.#backend.motor().releaseAll() } catch { /* lifecycle race */ }
       if (this.#activity?.status === 'active') {
         this.#activity = { ...this.#activity, status: 'paused', revision: this.#activity.revision + 1 }
       }
@@ -422,7 +422,7 @@ export class CompanionRuntime {
     if (health > 8) return
     this.#lastDangerAt = Date.now()
     this.#modelAbort?.abort('danger_reflex')
-    try { this.#backend.controls().stop() } catch { /* lifecycle race */ }
+    try { this.#backend.motor().releaseAll() } catch { /* lifecycle race */ }
     this.#speech.setPressure('danger')
     this.#speech.schedule({ id: randomUUID(), text: '我受伤了，先停一下！', timing: 'now', purpose: 'report', urgency: 'urgent' })
     const event = await this.#rememberRecent('companion.danger.detected', '自身生命值进入危险范围，身体输入已释放')
