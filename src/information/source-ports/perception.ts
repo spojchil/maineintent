@@ -41,6 +41,8 @@ export interface VisibleEntity {
   position: Point3
   /** Internal visual sample used by a scoped gaze controller; never published by the provider. */
   aimPosition: Point3
+  /** Internal distance used for deterministic bounded selection; never published by the provider. */
+  distance: number
   type: string
   name?: string
   username?: string
@@ -163,7 +165,7 @@ function hasExposedFace(port: PerceptionPort, voxel: Point3): boolean {
   ]
   return neighbors.some((neighbor) => {
     const block = port.blockAt(neighbor)
-    return block === 'unloaded' || !block.visible
+    return block !== 'unloaded' && !block.visible
   })
 }
 
@@ -187,7 +189,7 @@ export function visibleEntities(
   const eye: Point3 = { x: pose.position.x, y: pose.position.y + EYE_HEIGHT, z: pose.position.z }
   const facing = lookDirection(pose.yaw, pose.pitch)
   const cosThreshold = Math.cos(halfAngle)
-  return port.nearbyEntities().flatMap((entity): VisibleEntity[] => {
+  const candidates = port.nearbyEntities().flatMap((entity): VisibleEntity[] => {
     const height = entity.height ?? 1.8
     const center: Point3 = { x: entity.position.x, y: entity.position.y + height / 2, z: entity.position.z }
     const toCenter = { x: center.x - eye.x, y: center.y - eye.y, z: center.z - eye.z }
@@ -202,13 +204,16 @@ export function visibleEntities(
       entityKey: entity.entityKey,
       position: entity.position,
       aimPosition: center,
+      distance,
       type: entity.type,
       ...(entity.name ? { name: entity.name } : {}),
       ...(entity.username ? { username: entity.username } : {}),
       distanceBand: distance <= 2.5 ? 'very_near' : distance <= 8 ? 'near' : distance <= 24 ? 'medium' : 'far',
       direction: relativeBearing(pose.yaw, pose.position, entity.position),
     }]
-  }).slice(0, limit)
+  })
+  candidates.sort((left, right) => left.distance - right.distance || left.entityKey.localeCompare(right.entityKey))
+  return candidates.slice(0, limit)
 }
 
 function lineIsClear(port: PerceptionPort, origin: Point3, target: Point3): boolean {

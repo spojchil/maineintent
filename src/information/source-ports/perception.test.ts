@@ -66,6 +66,17 @@ test('visibleBlocks sorts, truncates and treats unloaded terrain as unknown', as
   assert.deepEqual(limited.blocks.map(block => block.name), ['nearest'])
 })
 
+test('an unloaded neighbor does not prove that an otherwise enclosed block has an exposed face', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>([
+    ['0,65,-4', opaque('uncertain_enclosed')],
+    ['1,65,-4', opaque('stone')], ['-1,65,-4', opaque('stone')],
+    ['0,66,-4', opaque('stone')], ['0,64,-4', opaque('stone')],
+    ['0,65,-3', opaque('stone')], ['0,65,-5', 'unloaded'],
+  ])
+  const result = await visibleBlocks(new FakePerceptionPort(POSE, blocks), OPTIONS)
+  assert.equal(result.blocks.some(block => block.name === 'uncertain_enclosed'), false)
+})
+
 test('visibleBlocks yields to cancellation during a large scan', async () => {
   const controller = new AbortController()
   setImmediate(() => controller.abort('superseded'))
@@ -86,6 +97,16 @@ test('visibleEntities excludes targets behind the view or an opaque wall', () =>
   ])
   const result = visibleEntities(new FakePerceptionPort(POSE, blocks, entities), 32, Math.PI / 4, 10)
   assert.deepEqual(result.map(entity => entity.username ?? entity.type), ['Alex'])
+})
+
+test('visibleEntities applies its limit to nearest visible entities instead of tracker insertion order', () => {
+  const entities: PerceptionEntityCandidate[] = [
+    { entityKey: 'entity-far', type: 'cow', position: { x: 0, y: 64, z: -20 } },
+    { entityKey: 'entity-near', type: 'player', username: 'Alex', position: { x: 0, y: 64, z: -3 } },
+  ]
+  const result = visibleEntities(new FakePerceptionPort(POSE, new Map(), entities), 32, Math.PI / 4, 1)
+  assert.deepEqual(result.map(entity => entity.entityKey), ['entity-near'])
+  assert.ok((result[0]?.distance ?? Infinity) < 4)
 })
 
 test('viewRelativePosition is pose-relative and quantized rather than a world coordinate', () => {
