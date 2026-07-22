@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { composeContextPackage, type ContextTrigger } from '../context/index.js'
+import { BehaviorSynthesizer, type BehaviorPlanV1, type BehaviorSynthesisResult } from '../behavior/index.js'
 import type { JsonlEventJournal, JournalEvent } from '../events/index.js'
+import { GroundedReferentStore, GroundingEngine, type EmbodiedGroundingResult } from '../grounding/index.js'
 import {
   composePassiveObservations,
   CurrentStatusProvider,
@@ -15,6 +17,7 @@ import {
 } from '../information/index.js'
 import type { FileMemoryStore, MemoryKind } from '../memory/index.js'
 import type { BackendEventEnvelope, MinecraftBackendApi, ProtocolChatEvent, Vec3Value } from '../minecraft/contracts.js'
+import { VisualAttentionController, type VisualAttentionResult } from '../motor/index.js'
 import {
   companionDecisionV2OutputSchema,
   DecisionProtocolDispatcher,
@@ -84,7 +87,11 @@ export class CompanionRuntime {
   readonly #primaryPlayer: string
   readonly #speech: SpeechScheduler
   readonly #soundHistory: SoundHistory
+  readonly #perception: BackendPerceptionPort
   readonly #informationRuntime: InformationRuntime
+  readonly #groundedReferents = new GroundedReferentStore()
+  readonly #grounding: GroundingEngine
+  readonly #behavior: BehaviorSynthesizer
   readonly #dispatcher = new DecisionProtocolDispatcher()
   readonly #abort = new AbortController()
   readonly #recentEvents: Array<{ id: string; type: string; summary: string }> = []
@@ -94,6 +101,8 @@ export class CompanionRuntime {
   #intent?: CompanionIntent
   #unsubscribe?: () => void
   #modelAbort?: AbortController
+  #activeBehavior?: { plan: BehaviorPlanV1; abort: AbortController; startedAt: string }
+  #behaviorTask?: Promise<void>
   #decisionTail = Promise.resolve()
   #started = false
   #lastDangerAt = 0
@@ -114,7 +123,14 @@ export class CompanionRuntime {
       onEvent: event => { void this.#append(`speech.${event.type}`, withoutPrivateSpeech(event)) },
     })
     this.#soundHistory = new SoundHistory(this.#backend)
-    this.#informationRuntime = buildInformationRuntime(this.#backend, this.#soundHistory)
+    this.#perception = new BackendPerceptionPort(this.#backend)
+    this.#informationRuntime = buildInformationRuntime(this.#backend, this.#soundHistory, this.#perception)
+    this.#grounding = new GroundingEngine({
+      references: this.#informationRuntime,
+      store: this.#groundedReferents,
+      scope: () => this.#embodimentScope(),
+    })
+    this.#behavior = new BehaviorSynthesizer(this.#groundedReferents)
   }
 
   activity(): Readonly<CompanionActivity> | undefined {
@@ -151,7 +167,9 @@ export class CompanionRuntime {
     if (!this.#started) return
     this.#started = false
     this.#modelAbort?.abort(reason)
+    this.#activeBehavior?.abort.abort(reason)
     try { this.#backend.motor().releaseAll() } catch { /* backend may already be disconnected */ }
+    if (this.#behaviorTask) await this.#behaviorTask
     await Promise.allSettled([...this.#backgroundTasks])
     await this.#decisionTail
     this.#speech.stop(reason)
@@ -165,6 +183,7 @@ export class CompanionRuntime {
 
   async idle(): Promise<void> {
     await this.#decisionTail
+    if (this.#behaviorTask) await this.#behaviorTask
     await Promise.allSettled([...this.#backgroundTasks])
     await this.#decisionTail
   }
@@ -194,6 +213,7 @@ export class CompanionRuntime {
     this.#pushRecent(journalEvent.id, journalEvent.type, `${message.sender.username}: ${message.text}`)
     if (message.controlIntent === 'safety_stop') {
       this.#modelAbort?.abort('player_safety_stop')
+      this.#activeBehavior?.abort.abort('player_safety_stop')
       try { this.#backend.motor().releaseAll() } catch { /* lifecycle race */ }
       if (this.#activity?.status === 'active') {
         this.#activity = { ...this.#activity, status: 'paused', revision: this.#activity.revision + 1 }
@@ -274,7 +294,7 @@ export class CompanionRuntime {
       this.#debug.update({
         decision: { status: 'idle', model: result.model, contextSources: sources, retrievedMemoryIds: memories.map(memory => memory.id) },
       })
-      await this.#applyProposal(proposal.effects, context)
+      await this.#applyProposal(proposal.effects, context, controller.signal)
     } catch (error) {
       if (controller.signal.aborted) return
       this.#debug.update({ decision: { status: 'failed', runId, contextSources: sources, retrievedMemoryIds: memories.map(memory => memory.id) } })
@@ -282,9 +302,15 @@ export class CompanionRuntime {
     }
   }
 
-  async #applyProposal(effects: readonly DecisionEffectV2[], context: ContextPackageV2): Promise<void> {
+  async #applyProposal(
+    effects: readonly DecisionEffectV2[],
+    context: ContextPackageV2,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted) return
     const effectResults: Array<{ effectId: string; status: string; code?: string }> = []
     const embodied = effects.find(effect => effect.kind === 'embodied_intent')
+    let acceptedPlan: BehaviorPlanV1 | undefined
 
     for (const effect of effects) {
       if (effect.kind === 'activity') {
@@ -301,18 +327,28 @@ export class CompanionRuntime {
     }
 
     if (embodied) {
-      effectResults.push({ effectId: embodied.id, status: 'rejected', code: 'behavior_runtime_not_available' })
-      await this.#append('embodiment.plan.rejected', {
-        runId: context.ref.runId,
-        effectId: embodied.id,
-        reasonCode: 'behavior_runtime_not_available',
-      })
+      const prepared = await this.#prepareEmbodiedIntent(embodied, context, signal)
+      if (signal.aborted) return
+      if (prepared.status === 'accepted') {
+        acceptedPlan = prepared.plan
+        effectResults.push({ effectId: embodied.id, status: 'accepted' })
+      } else effectResults.push({ effectId: embodied.id, status: 'rejected', code: prepared.code })
     }
 
     for (const effect of effects) {
       if (effect.kind === 'speech') {
         if (effect.timing === 'now') {
           this.#speech.schedule({ id: effect.id, text: effect.text, timing: 'now', purpose: effect.purpose })
+          effectResults.push({ effectId: effect.id, status: 'accepted' })
+        } else if (acceptedPlan && embodied) {
+          this.#speech.schedule({
+            id: effect.id,
+            text: effect.text,
+            timing: effect.timing === 'after_intent_accepted' ? 'after_actions_accepted' : 'after_action_terminal',
+            purpose: effect.purpose,
+            dependsOn: effect.dependsOn,
+            ...(effect.terminalCondition ? { terminalCondition: effect.terminalCondition } : {}),
+          })
           effectResults.push({ effectId: effect.id, status: 'accepted' })
         } else {
           effectResults.push({ effectId: effect.id, status: 'rejected', code: embodied ? 'embodied_dependency_rejected' : 'missing_embodied_dependency' })
@@ -328,6 +364,178 @@ export class CompanionRuntime {
       status: effectResults.some(item => item.status === 'rejected') ? 'partially_applied' : 'applied',
       effects: effectResults,
     })
+    if (acceptedPlan && embodied && !signal.aborted) {
+      this.#speech.actionAccepted(embodied.id)
+      this.#launchBehavior(acceptedPlan)
+    } else if (acceptedPlan && signal.aborted) {
+      for (const effect of effects) if (effect.kind === 'speech' && effect.timing !== 'now') {
+        this.#speech.cancel(effect.id, 'decision_cancelled_before_behavior_start')
+      }
+    }
+  }
+
+  async #prepareEmbodiedIntent(
+    effect: Extract<DecisionEffectV2, { kind: 'embodied_intent' }>,
+    context: ContextPackageV2,
+    signal: AbortSignal,
+  ): Promise<{ status: 'accepted'; plan: BehaviorPlanV1 } | { status: 'rejected'; code: string }> {
+    if (signal.aborted) return { status: 'rejected', code: 'decision_cancelled' }
+    const caller = {
+      principalId: INFORMATION_PRINCIPAL_ID,
+      grantId: INFORMATION_GRANT_ID,
+      purpose: 'companion_context' as const,
+      correlationId: context.ref.runId,
+      decisionRunId: context.ref.runId,
+    } satisfies TrustedInformationCaller
+    const grounding = this.#grounding.ground({ effect, context, caller })
+    await this.#recordGrounding(context.ref.runId, grounding)
+    if (signal.aborted) return { status: 'rejected', code: 'decision_cancelled' }
+    if (grounding.status !== 'grounded') {
+      const code = `grounding_${grounding.status}_${grounding.reasonCode}`
+      await this.#append('embodiment.plan.rejected', { runId: context.ref.runId, effectId: effect.id, reasonCode: code })
+      return { status: 'rejected', code }
+    }
+    const synthesis = this.#behavior.synthesize({ intent: grounding.intent, scope: this.#embodimentScope() })
+    await this.#recordSynthesis(context.ref.runId, synthesis)
+    if (signal.aborted) return { status: 'rejected', code: 'decision_cancelled' }
+    if (synthesis.status !== 'ready') {
+      const code = `behavior_${synthesis.status}_${synthesis.reasonCode}`
+      await this.#append('embodiment.plan.rejected', { runId: context.ref.runId, effectId: effect.id, reasonCode: code })
+      return { status: 'rejected', code }
+    }
+
+    if (this.#activeBehavior) {
+      if (this.#activeBehavior.plan.interruptibility !== 'immediate') {
+        return { status: 'rejected', code: 'behavior_resource_busy' }
+      }
+      this.#activeBehavior.abort.abort('superseded_by_new_behavior')
+      if (this.#behaviorTask) await this.#behaviorTask
+      if (signal.aborted) return { status: 'rejected', code: 'decision_cancelled' }
+    }
+    if (Date.parse(synthesis.plan.validUntil) <= Date.now()) {
+      return { status: 'rejected', code: 'behavior_plan_expired_before_acceptance' }
+    }
+    return { status: 'accepted', plan: synthesis.plan }
+  }
+
+  async #recordGrounding(runId: string, result: EmbodiedGroundingResult): Promise<void> {
+    await this.#append('embodiment.grounding.finished', result.status === 'grounded'
+      ? {
+          runId,
+          effectId: result.intent.effectId,
+          status: result.status,
+          groundingStatus: result.intent.groundingStatus,
+          referentCount: result.intent.referents.length,
+          missingProperties: result.intent.missingInformation.map(item => item.property),
+          evidenceIds: result.intent.referents.flatMap(item => item.evidenceIds),
+        }
+      : { runId, effectId: result.effectId, status: result.status, reasonCode: result.reasonCode })
+  }
+
+  async #recordSynthesis(runId: string, result: BehaviorSynthesisResult): Promise<void> {
+    await this.#append('embodiment.behavior.synthesized', result.status === 'ready'
+      ? {
+          runId,
+          effectId: result.plan.effectId,
+          status: result.status,
+          planId: result.plan.id,
+          planProtocol: result.plan.protocol,
+          stepKinds: result.plan.steps.map(step => step.kind),
+          modes: result.plan.steps.map(step => step.mode),
+          stateIds: result.plan.steps.map(step => step.stateId),
+          resourceClaims: result.plan.resourceClaims,
+          validUntil: result.plan.validUntil,
+        }
+      : { runId, effectId: result.effectId, status: result.status, reasonCode: result.reasonCode })
+  }
+
+  #launchBehavior(plan: BehaviorPlanV1): void {
+    const active = { plan, abort: new AbortController(), startedAt: new Date().toISOString() }
+    this.#activeBehavior = active
+    this.#bumpCompanionRevision()
+    this.#refreshDebug()
+    const task = this.#runBehavior(active).catch(error => {
+      this.#recordFailure('controller', 'behavior_execution_failed', error)
+      if (this.#activeBehavior?.plan.id === plan.id) {
+        this.#activeBehavior = undefined
+        this.#bumpCompanionRevision()
+        this.#refreshDebug()
+      }
+      this.#speech.actionTerminal(plan.effectId, 'failed')
+    })
+    this.#behaviorTask = task
+    this.#backgroundTasks.add(task)
+    void task.finally(() => this.#backgroundTasks.delete(task))
+  }
+
+  async #runBehavior(active: { plan: BehaviorPlanV1; abort: AbortController; startedAt: string }): Promise<void> {
+    const { plan } = active
+    await this.#append('embodiment.controller.started', {
+      runId: plan.decisionRunId,
+      effectId: plan.effectId,
+      planId: plan.id,
+      controller: 'visual_attention',
+      stepKind: plan.steps[0].kind,
+      mode: plan.steps[0].mode,
+      stateId: plan.steps[0].stateId,
+      resourceClaims: plan.resourceClaims,
+    })
+    let result: VisualAttentionResult
+    try {
+      const controller = new VisualAttentionController({
+        targets: this.#groundedReferents,
+        perception: this.#perception,
+        motor: this.#backend.motor(),
+        scope: () => {
+          const value = this.#embodimentScope()
+          return { worldId: value.worldId, epoch: value.epoch }
+        },
+      })
+      result = await controller.execute({ plan, signal: active.abort.signal })
+    } catch (error) {
+      this.#recordFailure('controller', 'controller_unavailable', error)
+      result = {
+        planId: plan.id,
+        decisionRunId: plan.decisionRunId,
+        effectId: plan.effectId,
+        status: active.abort.signal.aborted ? 'cancelled' : 'failed',
+        reasonCode: active.abort.signal.aborted ? 'controller_cancelled' : 'controller_unavailable',
+        evidence: [],
+        metrics: { lookSamples: 0, scanStops: 0 },
+      }
+    }
+    for (const item of result.evidence) {
+      await this.#append('embodiment.controller.evidence', {
+        runId: plan.decisionRunId,
+        effectId: plan.effectId,
+        planId: plan.id,
+        stage: item.stage,
+        evidenceIds: item.evidenceIds,
+        observedAt: item.at,
+      })
+    }
+    const terminal = await this.#append('embodiment.controller.terminal', {
+      runId: plan.decisionRunId,
+      effectId: plan.effectId,
+      planId: plan.id,
+      status: result.status,
+      reasonCode: result.reasonCode,
+      metrics: result.metrics,
+      evidenceIds: result.evidence.flatMap(item => item.evidenceIds),
+      ...(result.observedTarget ? { observedTarget: result.observedTarget } : {}),
+    })
+    this.#speech.actionTerminal(plan.effectId, result.status)
+    if (this.#activeBehavior?.plan.id === plan.id) {
+      this.#activeBehavior = undefined
+      this.#bumpCompanionRevision()
+      this.#refreshDebug()
+    }
+    const summary = controllerSummary(result)
+    this.#pushRecent(terminal.id, terminal.type, summary)
+    const reason = active.abort.signal.reason
+    const suppressDecision = reason === 'player_safety_stop' || reason === 'danger_reflex' ||
+      reason === 'superseded_by_new_behavior' || reason === 'runtime_stopped'
+    if (this.#started && !suppressDecision) this.#enqueueDecision({ type: 'action_result', eventId: terminal.id })
   }
 
   #applyActivity(effect: ActivityEffect): boolean {
@@ -422,6 +630,7 @@ export class CompanionRuntime {
     if (health > 8) return
     this.#lastDangerAt = Date.now()
     this.#modelAbort?.abort('danger_reflex')
+    this.#activeBehavior?.abort.abort('danger_reflex')
     try { this.#backend.motor().releaseAll() } catch { /* lifecycle race */ }
     this.#speech.setPressure('danger')
     this.#speech.schedule({ id: randomUUID(), text: '我受伤了，先停一下！', timing: 'now', purpose: 'report', urgency: 'urgent' })
@@ -444,7 +653,9 @@ export class CompanionRuntime {
       } : null,
       intent: this.#intent ? structuredClone(this.#intent) : null,
       attention: this.#attention ? structuredClone(this.#attention) : null,
-      control: { status: 'idle' },
+      control: this.#activeBehavior
+        ? { status: 'running', effectId: this.#activeBehavior.plan.effectId, startedAt: this.#activeBehavior.startedAt }
+        : { status: 'idle' },
     }
   }
 
@@ -477,8 +688,20 @@ export class CompanionRuntime {
       attention: this.#attention,
       activity: this.#activity,
       intent: this.#intent ? { kind: 'active', summary: this.#intent.summary } : undefined,
-      resourceLeases: {},
+      currentBehavior: this.#activeBehavior ? {
+        id: this.#activeBehavior.plan.id,
+        intentEffectId: this.#activeBehavior.plan.effectId,
+        phase: 'running',
+        purpose: 'visual_attention',
+        startedAt: this.#activeBehavior.startedAt,
+      } : undefined,
+      resourceLeases: this.#activeBehavior ? { gaze: this.#activeBehavior.plan.id } : {},
     })
+  }
+
+  #embodimentScope(): { worldId: string; epoch: number; now: Date } {
+    const snapshot = this.#backend.snapshot()
+    return { worldId: snapshot.world.worldId, epoch: snapshot.connectionEpoch, now: new Date() }
   }
 
   async #composePassiveObservations(runId: string, signal: AbortSignal): Promise<PassiveObservations> {
@@ -554,12 +777,16 @@ function withoutPrivateSpeech(event: unknown): unknown {
   return copy
 }
 
-function buildInformationRuntime(backend: MinecraftBackendApi, soundHistory: SoundHistory): InformationRuntime {
+function buildInformationRuntime(
+  backend: MinecraftBackendApi,
+  soundHistory: SoundHistory,
+  perception: BackendPerceptionPort,
+): InformationRuntime {
   const registry = new InformationRegistry()
   registry.register(new CurrentStatusProvider(new BackendSelfVitalsPort(backend)))
   registry.register(new InventoryProvider(new BackendInventoryPort(backend)))
   registry.register(new SoundInformationProvider(soundHistory))
-  registry.register(new ViewportInformationProvider(new BackendPerceptionPort(backend)))
+  registry.register(new ViewportInformationProvider(perception))
   registry.seal('1.21.1')
 
   const accessPolicy = new InMemoryInformationAccessPolicy()
@@ -576,4 +803,10 @@ function buildInformationRuntime(backend: MinecraftBackendApi, soundHistory: Sou
     accessPolicy,
     scopeSource: new BackendInformationScopeSource(backend, randomUUID()),
   })
+}
+
+function controllerSummary(result: VisualAttentionResult): string {
+  if (result.status === 'completed') return '视觉注意已由新的第一人称观察验证'
+  if (result.status === 'cancelled') return '视觉注意行为已取消，未报告完成'
+  return `视觉注意行为失败：${result.reasonCode}`
 }

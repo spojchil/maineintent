@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -74,6 +74,54 @@ test('V2 runtime waits for the self chunk and preserves the complete Information
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('V2 runtime grounds, synthesizes and visually verifies look-at-me before terminal speech', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-gaze-'))
+  try {
+    const backend = new FakeBackend()
+    const model = new ScriptedModel()
+    const journalFile = path.join(root, 'events.jsonl')
+    const runtime = createRuntime(backend, model, path.join(root, 'memories.json'), journalFile)
+    await runtime.start()
+    await settle(runtime)
+    backend.chat('看向我')
+    await settle(runtime)
+
+    assert.ok(backend.motorInstance.looks.length > 1)
+    assert.ok(Math.abs(Math.abs(backend.yaw) - Math.PI) < 0.1)
+    assert.equal(backend.sent.some(message => message.includes('转过来')), true)
+    assert.equal(backend.sent.some(message => message.includes('看到你')), true)
+    const events = readFileSync(journalFile, 'utf8').trim().split(/\r?\n/u).map(line => JSON.parse(line) as { type: string; payload: any })
+    assert.ok(events.some(event => event.type === 'embodiment.grounding.finished' && event.payload.groundingStatus === 'partial'))
+    assert.ok(events.some(event => event.type === 'embodiment.behavior.synthesized' && event.payload.modes?.includes('bounded_scan_for_identity')))
+    assert.ok(events.some(event => event.type === 'embodiment.controller.evidence' && event.payload.stage === 'outcome_verified'))
+    assert.ok(events.some(event => event.type === 'embodiment.controller.terminal' && event.payload.status === 'completed'))
+    assert.equal(JSON.stringify(events).includes('entity-alex'), false)
+    await runtime.stop('test_complete')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('safety stop cancels an in-flight gaze and suppresses completion speech', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-gaze-stop-'))
+  try {
+    const backend = new FakeBackend()
+    backend.blockMotorLook = true
+    const journalFile = path.join(root, 'events.jsonl')
+    const runtime = createRuntime(backend, new ScriptedModel(), path.join(root, 'memories.json'), journalFile)
+    await runtime.start()
+    await settle(runtime)
+    backend.chat('看向我')
+    await waitFor(() => backend.motorInstance.looks.length > 0)
+    backend.chat('停下')
+    await settle(runtime)
+
+    assert.ok(backend.motorInstance.releases > 0)
+    assert.equal(backend.sent.some(message => message.includes('看到你')), false)
+    const events = readFileSync(journalFile, 'utf8').trim().split(/\r?\n/u).map(line => JSON.parse(line) as { type: string; payload: any })
+    assert.ok(events.some(event => event.type === 'embodiment.controller.terminal' && event.payload.status === 'cancelled'))
+    await runtime.stop('test_complete')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 function createRuntime(backend: FakeBackend, model: ScriptedModel, memoryFile: string, journalFile: string): CompanionRuntime {
   const debug = new DebugStateStore()
   model.debug = debug
@@ -105,6 +153,31 @@ class ScriptedModel implements ModelProvider {
         audience: { kind: 'primary_player' }, timing: 'now', purpose: 'social',
       }]))
     }
+    if (text.includes('看向我')) return result(decision(context, [
+      {
+        id: 'embodied_gaze', kind: 'embodied_intent', summary: '与说话者建立视觉共同注意', desiredOutcome: '看向说话者',
+        semanticGoal: {
+          schema: 'mineintent.semantic-goal.v1',
+          objective: { kind: 'state', state: {
+            id: 'state_attention', concept: 'self.attention_includes', description: '自身视觉注意覆盖说话者',
+            arguments: {
+              observer: { kind: 'self' }, subject: { kind: 'referent_role', role: 'speaker' },
+            },
+          } },
+          methodGuidance: [],
+        },
+        referents: [{ role: 'speaker', selection: { kind: 'message_referent', eventId: triggerEventId, expression: '我' } }],
+        constraints: { maxDurationMs: 8_000, interruptibility: 'immediate' },
+      },
+      {
+        id: 'speech_gaze_started', kind: 'speech', text: '好，我转过来看看。', audience: { kind: 'primary_player' },
+        timing: 'after_intent_accepted', dependsOn: ['embodied_gaze'], purpose: 'coordinate',
+      },
+      {
+        id: 'speech_gaze_done', kind: 'speech', text: '看到你了。', audience: { kind: 'primary_player' },
+        timing: 'after_intent_terminal', dependsOn: ['embodied_gaze'], terminalCondition: 'completed', purpose: 'report',
+      },
+    ]))
     if (text.includes('记住')) return result(decision(context, [{
       id: 'memory_shared_activity', kind: 'memory_candidate', memoryKind: 'episode',
       content: '与 Alex 一起开始收集木材。', sourceClaim: 'player_stated',
@@ -184,7 +257,19 @@ function observationReads(context: ContextPackageV2): Array<Record<string, any>>
 class FakeMotor implements MinecraftMotorDriverApi {
   constructor(readonly owner: FakeBackend) {}
   releases = 0
-  async look(): Promise<void> {}
+  looks: Array<{ yaw: number; pitch: number }> = []
+  async look(yaw: number, pitch: number, signal: AbortSignal): Promise<void> {
+    this.looks.push({ yaw, pitch })
+    if (this.owner.blockMotorLook) {
+      await new Promise<void>((_resolve, reject) => {
+        const abort = () => reject(new DOMException('aborted', 'AbortError'))
+        signal.addEventListener('abort', abort, { once: true })
+      })
+    }
+    this.owner.yaw = yaw
+    this.owner.pitch = pitch
+    this.owner.perceptionRevision++
+  }
   async dig(position: { x: number; y: number; z: number }): Promise<MotorDigFeedback> {
     return { stage: 'client_predicted', name: 'oak_log', position }
   }
@@ -193,11 +278,15 @@ class FakeMotor implements MinecraftMotorDriverApi {
 
 class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   position = { x: 0, y: 64, z: 0 }
+  yaw = 0
+  pitch = 0
+  blockMotorLook = false
+  perceptionRevision = 1
   sent: string[] = []
   motorInstance = new FakeMotor(this)
   chunkLoadsAfterReadBlockCalls = 0
   #state: BackendState = { status: 'idle' }
-  #revision = 0
+  #snapshotRevision = 0
   #readBlockCalls = 0
 
   async start(): Promise<BackendReady> {
@@ -208,10 +297,10 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   state(): Readonly<BackendState> { return structuredClone(this.#state) }
   snapshot(): Readonly<MinecraftSnapshotV1> {
     return {
-      protocol: 'mineintent.minecraft.snapshot.v1', snapshotRevision: ++this.#revision, lifecycleRevision: 1,
+      protocol: 'mineintent.minecraft.snapshot.v1', snapshotRevision: ++this.#snapshotRevision, lifecycleRevision: 1,
       capturedAt: new Date().toISOString(), processSessionId: 'session', connectionEpoch: 1, connectionAttemptId: 'attempt',
       world: { worldId: 'test-world', dimension: 'overworld', minecraftVersion: '1.21.1', protocolVersion: 767, gameMode: 'survival', minY: -64, height: 384, timeOfDay: 1000 },
-      self: { entityKey: 'self', username: 'MineIntentBot', position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, onGround: true, alive: true, health: 20, food: 20, foodSaturation: 5, effects: [] },
+      self: { entityKey: 'self', username: 'MineIntentBot', position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: this.yaw, pitch: this.pitch, onGround: true, alive: true, health: 20, food: 20, foodSaturation: 5, effects: [] },
       inventory: { selectedHotbarSlot: 0, slots: [] },
       trackedPlayers: [{ playerKey: 'alex', username: 'Alex', listed: true, entityTracked: true, position: { x: 0, y: 64, z: 1 } }],
     }
@@ -220,8 +309,8 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
   observationSource(): ProtocolObservationSource {
     return {
       epoch: () => 1,
-      revision: () => this.#revision,
-      selfPose: () => ({ position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0 }),
+      revision: () => this.perceptionRevision,
+      selfPose: () => ({ position: this.position, velocity: { x: 0, y: 0, z: 0 }, yaw: this.yaw, pitch: this.pitch }),
       listTrackedEntities: () => [{
         entityKey: '1:alex', protocolEntityId: 1, type: 'player', username: 'Alex',
         position: { x: 0, y: 64, z: 1 }, velocity: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0,
@@ -229,7 +318,10 @@ class FakeBackend extends EventEmitter implements MinecraftBackendApi {
       }],
       readBlock: (position) => {
         this.#readBlockCalls++
-        if (position.y !== Math.floor(this.position.y) - 1) return { status: 'unloaded' }
+        if (position.y !== Math.floor(this.position.y) - 1) return {
+          status: 'loaded',
+          block: { position, name: 'air', stateId: 0, properties: {}, collisionShapes: [], transparentHint: true, boundingBox: 'empty' },
+        }
         if (this.#readBlockCalls <= this.chunkLoadsAfterReadBlockCalls) return { status: 'unloaded' }
         return { status: 'loaded', block: { position, name: 'grass_block', stateId: 1, properties: {}, collisionShapes: [], transparentHint: false, boundingBox: 'block' } }
       },
@@ -251,4 +343,11 @@ async function settle(runtime: CompanionRuntime): Promise<void> {
   await delay(30); await runtime.idle(); await delay(50); await runtime.idle(); await delay(20)
 }
 function delay(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)) }
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('condition was not reached before timeout')
+    await delay(5)
+  }
+}
 function randomId(): string { return `event-${Date.now()}-${Math.random()}` }
