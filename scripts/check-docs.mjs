@@ -75,6 +75,18 @@ function parseFrontMatter(path, source) {
     failures.push(`${repoPath(path)}: last_verified 必须是 YYYY-MM-DD`)
   }
 
+  // A baseline is "branch@sha" or a bare "sha"; several baselines may be joined with " + ".
+  const baseline = /^[0-9a-f]{7,40}$|^[\w./-]+@[0-9a-f]{7,40}$/
+  for (const key of ['applies_to', 'source_commit']) {
+    const value = metadata.get(key)
+    if (value && !value.split(' + ').every((part) => baseline.test(part.trim()))) {
+      failures.push(`${repoPath(path)}: ${key} 必须是 分支@短提交 或 短提交，实为 ${JSON.stringify(value)}`)
+    }
+  }
+  if (metadata.get('status') === 'experimental' && !metadata.get('applies_to')) {
+    failures.push(`${repoPath(path)}: experimental 文档必须用 applies_to 指明基线`)
+  }
+
   if (
     ['proposed', 'experimental', 'historical'].includes(metadata.get('status')) &&
     metadata.get('authority') !== 'informative'

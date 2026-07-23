@@ -16,9 +16,9 @@ applies_to: main@53ebc57 + codex/trustworthy-passive-context@57d438e
 |---|---|---|
 | 默认分支 `main` | [`53ebc57`](https://github.com/spojchil/maineintent/commit/53ebc5797f970c791a03c97b0d83c6c80a5c36ae) | GitHub 默认展示和现有成功 CI 所在位置 |
 | 最新代码实验 `codex/trustworthy-passive-context` | [`57d438e`](https://github.com/spojchil/maineintent/commit/57d438e167e7b66408f239369979dad2fd90f975) | 比 `main` 多 22 个提交；包含 V2 决策、Grounding、Behavior 和可信注视实验 |
-| 本次文档重组 | 基于 `57d438e` 的本地分支 | 不改产品 runtime；整理文档并新增文档校验脚本/CI hook；尚未推送或创建 PR |
+| 本次文档重组 `codex/docs-information-architecture` | 基于 `57d438e`，已推送 | 整理文档并新增文档校验脚本/CI hook；唯一的 runtime 改动是修复 `AbortSignal.timeout()` 在 Node 22 下不保持事件循环的控制器超时问题 |
 
-截至核对日期，最新代码实验没有关联 PR、GitHub Actions run 或 commit status。因此它是“最新实现”，不是“最新接受架构”。
+截至核对日期，最新代码实验没有关联 PR、GitHub Actions run 或 commit status。因此它是“最新实现”，不是“最新接受架构”。文档重组分支计划以 PR 合并，合并即为其治理规则的接受证据。
 
 ## 当前能力矩阵
 
@@ -93,19 +93,24 @@ Minecraft / Mineflayer
 - Issue #43 的统一语言事实门控仍未实现。
 - Issue #63 的 Cursor scope 问题仍 open；若最终取消模型分页，它的范围可能改变，但现在不能假装已经解决。
 
-旧阶段文件保留在 [`roadmap/`](./roadmap/README.md)，但不应直接用作当前排期。
+旧阶段文件保留在 [`roadmap/`](./history/README.md)，但不应直接用作当前排期。
 
 ## 验证状态
 
 在 2026-07-23 对 `57d438e` 的本地核验：
 
 - Node 24：TypeScript 检查通过，123/123 测试通过。
-- 本次新增文档检查在 Node 24 和 Node 22.23.1 均通过：54 份 `docs/` 文档的元数据、相对链接和登记表一致。
 - Python 3.12：11/11 测试通过。
 - Node 22.23.1（满足项目声明的 `>=22`）：TypeScript 检查通过；测试为 122 pass、1 cancelled，进程退出 1。
-- 取消项是 `visual-attention-controller.test.ts` 的 deadline 场景；本次审计诊断为 `AbortSignal.timeout()` 的 unref timer 在 Node 22 测试进程没有其他活跃 handle 时不会保持事件循环。
+- 取消项是 `visual-attention-controller.test.ts` 的 deadline 场景，根因为 `AbortSignal.timeout()` 的 unref timer 在 Node 22 测试进程没有其他活跃 handle 时不会保持事件循环。
 
-因此，最新实验分支当前不能声称通过仓库声明基线的完整 CI。默认分支最近一次 GitHub CI 成功记录见 [Actions run #29851997169](https://github.com/spojchil/maineintent/actions/runs/29851997169)。
+在文档重组分支上对该缺陷的处理：
+
+- `visual-attention-controller.ts` 的控制器超时改用显式 `setTimeout` + `AbortController`，并在 `finally` 中 `clearTimeout`，与 `information/tool-session.ts` 的既有写法一致。ref'd timer 构造性地持有事件循环，不再依赖 unref 行为。
+- 复验：Node 24 下 TypeScript 检查通过，123/123 测试通过（deadline 用例现在真实触发计时器）；文档检查通过，47 份 `docs/` 文档的元数据、相对链接和登记表一致。
+- **Node 22 尚未本地复验**，最终确认以该分支 PR 的 CI（`node-version: 22`）为准。
+
+默认分支最近一次 GitHub CI 成功记录见 [Actions run #29851997169](https://github.com/spojchil/maineintent/actions/runs/29851997169)。
 
 ## 尚未做出的根本决定
 
@@ -117,4 +122,4 @@ Minecraft / Mineflayer
 - 结果协议如何同时表达终止原因、实际效果和观察事实？
 - 哪些 ref 需要保留为内部执行句柄，哪些不应暴露给模型？
 
-这些问题的事实修正和选项编号记录在[具身决策登记册](./proposals/embodiment/decision-register.md)。在明确决策以前，[架构反思](./proposals/embodiment/architecture-reflection.md)不能覆盖现有接受基线。
+这些问题的事实修正和选项编号记录在[具身决策登记册](./proposals/embodiment-decision-register.md)。在明确决策以前，[架构反思](./proposals/embodiment-architecture-reflection.md)不能覆盖现有接受基线。

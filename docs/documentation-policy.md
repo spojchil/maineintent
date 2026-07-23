@@ -1,15 +1,17 @@
 ---
-status: proposed
-authority: informative
+status: accepted
+authority: normative
 implementation: not-applicable
 last_verified: 2026-07-23
 ---
 
 # 文档治理规则
 
-> 本文是本次文档重组提出的候选治理规则，校验脚本已在本地分支执行，但它尚未通过提交、PR 合并或单独决策成为仓库规范。若本次重组被明确接受，应在同一合并中将本文改为 `accepted + normative`；在此之前它不能反向覆盖既有 accepted 决定。
+> 本文随本次文档重组的 PR 一起接受：合并即生效，未合并则本文不存在于 `main`。这与 ADR 的惯例一致——PR 的 diff 里写 `accepted`，合并那一刻它才成真。
 
 本规则解决一个具体问题：MineIntent 同时有长期愿景、已接受决定、已实现代码、实验分支、设计反思和历史资料。它们都值得保存，但不能都自称“当前权威”。
+
+规则**只有一条是硬的**：`main` 只通过合并 PR 变更。其余都是低成本的记账习惯，靠 `pnpm check:docs` 自动执行，不依赖自觉。
 
 ## 必填元数据
 
@@ -24,11 +26,19 @@ last_verified: 2026-07-23
 ---
 ```
 
-若文档只适用于特定分支或提交，还必须添加：
+若文档只描述特定基线，还须补一个来源字段：
 
-```yaml
-applies_to: codex/trustworthy-passive-context@57d438e
-```
+| 字段 | 用于 | 例 |
+|---|---|---|
+| `applies_to` | 文档描述**某个分支/提交上的系统状态**，基线前进后需要重新核对 | `applies_to: codex/trustworthy-passive-context@57d438e` |
+| `source_commit` | 文档正文**写于某个提交**，此后不随基线自动失效（反思、登记册一类） | `source_commit: e50c8f9` |
+
+`check:docs` 强制两条，不多不少：
+
+- **`status: experimental` 的文档必须有 `applies_to`。**实验的全部意义就是“在某个基线上跑通了”，不写基线的实验声明无法核对。
+- 两个字段一旦出现，格式必须是 `分支@短提交` 或 `短提交`（`main@53ebc57`、`e50c8f9`）。
+
+其余文档写不写由作者判断——描述稳定契约的 ADR 和导航 README 不需要基线。**规则写多少就强制多少**：政策里不放没人检查的“必须”。
 
 ## `status`
 
@@ -40,7 +50,7 @@ applies_to: codex/trustworthy-passive-context@57d438e
 | `historical` | 保存过去的事实或方案，不描述当前要求 |
 | `reference` | 操作手册、状态快照、调研或接口的人类可读视图 |
 
-“PR 已合并”通常是接受证据，但不是自动规则；若 PR 自己声明仍待决策，仍应标为 `proposed`。直接提交到分支或 `main` 证明“实现存在”，不自动证明方向已接受。
+**合并的 PR 是接受证据。**直接提交到分支证明“实现存在”，不证明方向已接受；若 PR 自己声明仍待决策，仍应标为 `proposed`。
 
 ## `authority`
 
@@ -55,7 +65,7 @@ applies_to: codex/trustworthy-passive-context@57d438e
 
 | 值 | 含义 |
 |---|---|
-| `current` | 所述能力在 `applies_to` 指定基线上存在并已核对 |
+| `current` | 所述能力在指定基线上存在并已核对 |
 | `partial` | 只有文档的一部分被实现 |
 | `planned` | 已接受，但实现尚未开始或尚未达到契约 |
 | `stalled` | 已接受计划因依赖、优先级或路线重开而停滞 |
@@ -63,45 +73,52 @@ applies_to: codex/trustworthy-passive-context@57d438e
 | `retired` | 过去存在或曾被提出，现在不再是活动实现路线 |
 | `not-applicable` | 愿景、治理或纯研究材料没有实现状态 |
 
-## 变更规则
+## 唯一的硬规则
 
-### 产品或架构方向变化
+**`main` 只通过合并 PR 变更，不强推。**
 
-1. 先在 GitHub Discussion 或 proposal Issue 中陈述问题、证据和选项。
-2. 将探索性文本放入 `proposals/`，标为 `proposed + informative`。
-3. 形成结论后，在 PR 中新增或修改 ADR，并同步受影响的产品、架构、状态和路线图文档。
-4. 接受后才把提案内容迁入 `accepted + normative` 文档；原提案保留结论和去向，不删除讨论历史。
+这条替代了原先的四步流程（先开 Discussion、再写提案、再写 ADR、再同步文档）。预登记的收益在单人项目里最低，成本最高，因此取消。剩下的要求是：**你可以在任何地方想清楚一件事，但它必须以一个可点开的 PR 落地。**
 
-### 实验代码
+配套建议在 GitHub 分支保护里勾选：禁止 force push、要求 PR。这样这条规则不依赖记性。
 
-1. 在 `experiments/` 中写清基线提交、问题假设、能力边界和验证结果。
-2. 不把 capability catalog、README 或里程碑写成实验已经成为产品能力。
-3. 实验若被接受，必须有明确 ADR/PR；若被放弃，改为 `historical` 或移入 `archive/`。
+## 怎样接受一个决定
 
-### 当前状态
+决策单元是[具身决策登记册](./proposals/embodiment-decision-register.md)里的 `Dxx` 条目。接受它 = 合并一个 PR，PR 内含：
 
-涉及代码能力、分支、测试和 Issue 的事实变更时，必须更新：
+1. 把该 `Dxx` 从“待决策”填成“已决定”，写清**结论、理由、被否决方案、对代码和文档的影响**。
+2. 翻转受影响文档的 front matter `status`。
+3. 同步[文档登记表](./document-register.md)。
+
+squash 合并后，`main` 上会留下一行带 `(#NN)` 的提交——那就是这个决定的引用地址。此后引用它，引用 `(#NN)`，不引用任何对话。
+
+**对话是想法成形的地方，不是证据。**结论必须在 PR 正文里重新写一遍；说不清到能写进 PR 正文的程度，就还不算一个决定。
+
+只有改变模型—身体接口本身的根边界决定（`D01`、`D02` 这一档）才另写 ADR。其余以“已合并的 `Dxx`”存在即可。
+
+## 需要顺手更新的地方
+
+改变代码能力、分支、测试或 Issue 事实时，顺带更新：
 
 - [`current-status.md`](./current-status.md)
 - [`architecture/current-system.md`](./architecture/current-system.md)
-- 相关实验或操作指南
-- 必要时更新 [`document-register.md`](./document-register.md)
+- 相关的实验或操作指南
+- [`document-register.md`](./document-register.md)（新增、移动或改变文档身份时）
+
+这是习惯，不是门。忘了不会挡住合并，但下一个读者会因此判断错误。
 
 ## 冲突处理
 
 - 代码与参考文档冲突：先修参考文档；若代码违背 accepted ADR，同时登记架构漂移。
-- 两份 accepted 文档冲突：不能凭日期自行覆盖，必须通过 ADR 明确 supersede 或 amend。
+- 两份 accepted 文档冲突：不能凭日期自行覆盖，必须通过 PR 明确 supersede 或 amend。
 - 提案与 accepted 文档冲突：保留冲突，直到决策完成。
 - 历史文档使用“当前”“现行”等词时：在文首加醒目历史说明，不必篡改原始正文语气。
 - Issue/Milestone 与代码冲突：状态文档同时记录两者，不能用其中一方假装另一方不存在。
 
-## 文档完成定义
-
-一次改变产品、协议、模块边界或里程碑的 PR，只有同时满足以下条件才算文档完整：
+## 一份好文档的样子（建议，非门槛）
 
 - 状态和 authority 明确；
 - 当前实现与目标设计分开描述；
-- 链接没有断裂；
+- 链接没有断裂（这条由 `check:docs` 强制）；
 - 已接受、实验、提案和历史材料没有混在同一叙述层；
 - 关键结论能够追溯到代码、测试、Issue、PR、ADR 或研究来源；
 - 被替代的高价值思考有归档位置和去向说明。

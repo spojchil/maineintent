@@ -7,7 +7,7 @@ last_verified: 2026-07-23
 
 # 同伴决策协议与上下文包
 
-> 这是 v0.2 clean-slate 接受基线，对应 Issue [#52](https://github.com/spojchil/maineintent/issues/52)。最新实验分支实现了 V2 单轮结构化决策、上下文绑定和核心 effect dispatch；本文同时规定的格式修复、freshness guard、Coordinator、多 route 运行语义和主动机会消费尚未完整实现。模型工具循环仍只是[候选提案](../proposals/embodiment/architecture-reflection.md)。上游：[目标系统](./target-system.md)、[同伴运行时](./companion-runtime.md)、[领域事件](./domain-events-and-journal.md)。
+> 这是 v0.2 clean-slate 接受基线，对应 Issue [#52](https://github.com/spojchil/maineintent/issues/52)。最新实验分支实现了 V2 单轮结构化决策、上下文绑定和核心 effect dispatch；本文同时规定的格式修复、freshness guard、Coordinator、多 route 运行语义和主动机会消费尚未完整实现。模型工具循环仍只是[候选提案](../proposals/embodiment-architecture-reflection.md)。上游：[目标系统](./target-system.md)、[同伴运行时](./companion-runtime.md)、[领域事件](./domain-events-and-journal.md)。
 
 ## 1. 目的
 

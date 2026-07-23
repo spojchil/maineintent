@@ -7,7 +7,7 @@ last_verified: 2026-07-23
 
 # 实体、方块、声音与玩家行为的认知感知模型
 
-> 2026-07-23 核对：本设计由 [PR #25](https://github.com/spojchil/maineintent/pull/25) 合并；当前代码只实现其中有限的被动视口、声音和 source-port 边界，不能把全文当作能力清单。对应 Issue：[#24](https://github.com/spojchil/maineintent/issues/24)。研究依据：[Minecraft 认知感知源码调研](../research/cognitive-perception-research.md)。上游：[目标系统设计](./target-system.md)、[领域事件](./domain-events-and-journal.md)、[同伴运行时](./companion-runtime.md)、[决策与上下文](./decision-contract-and-context.md)。
+> 2026-07-23 核对：本设计由 [PR #25](https://github.com/spojchil/maineintent/pull/25) 合并；当前代码只实现其中有限的被动视口、声音和 source-port 边界，不能把全文当作能力清单。对应 Issue：[#24](https://github.com/spojchil/maineintent/issues/24)。研究依据：[Minecraft 认知感知源码调研](../history/research-cognitive-perception.md)。上游：[目标系统设计](./target-system.md)、[领域事件](./domain-events-and-journal.md)、[同伴运行时](./companion-runtime.md)、[决策与上下文](./decision-contract-and-context.md)。
 
 ## 1. 目的
 
@@ -544,7 +544,7 @@ interface SoundObservation {
 
 ### 12.3 可听性与遮挡
 
-> **未协调修订：** 后来的 [PR #66 历史设计](../archive/proposals/2026-07-14-information/sound-and-lifecycle-information.md)指出：服务端已经选择并发送给客户端的声音，不应再用视觉 DDA 遮挡来丢弃或伪造衰减。该 PR 已关闭且未合并，因此不能静默取代本文的 accepted 规则；当前生产 Provider 也没有实现下面的遮挡推断。在新的听觉实测和 ADR/amendment 完成前，本小节不能直接当作 implementation-ready 规范。
+> **未协调修订：** 后来的 [PR #66 历史设计](../history/archive-2026-07-14-information/sound-and-lifecycle-information.md)指出：服务端已经选择并发送给客户端的声音，不应再用视觉 DDA 遮挡来丢弃或伪造衰减。该 PR 已关闭且未合并，因此不能静默取代本文的 accepted 规则；当前生产 Provider 也没有实现下面的遮挡推断。在新的听觉实测和 ADR/amendment 完成前，本小节不能直接当作 implementation-ready 规范。
 
 ```text
 BackendEventEnvelope<ProtocolSoundPayload>

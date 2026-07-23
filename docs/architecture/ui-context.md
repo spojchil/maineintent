@@ -7,7 +7,7 @@ last_verified: 2026-07-23
 
 # UI Context 与界面会话模块设计
 
-> 本设计由 [PR #67](https://github.com/spojchil/maineintent/pull/67) 合并；实现 Issue [#54](https://github.com/spojchil/maineintent/issues/54) 仍 open。当前简化 provider 不等于这里定义的 `UiContextProjection`。上游：[合法信息与 UI](./information-access-and-ui.md)、[Information Runtime](./information-runtime.md)、[v0.2 路线图](../roadmap/v0.2-legal-information-interfaces.md)。
+> 本设计由 [PR #67](https://github.com/spojchil/maineintent/pull/67) 合并；实现 Issue [#54](https://github.com/spojchil/maineintent/issues/54) 仍 open。当前简化 provider 不等于这里定义的 `UiContextProjection`。上游：[合法信息与 UI](./information-access-and-ui.md)、[Information Runtime](./information-runtime.md)、[v0.2 路线图](../history/roadmap-v0.2-legal-information-interfaces.md)。
 
 ## 1. 决定
 

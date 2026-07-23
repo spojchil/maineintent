@@ -15,7 +15,7 @@ source_commit: c31a814
 >
 > 对应 Issue：[#59](https://github.com/spojchil/mineintent/issues/59)
 >
-> 上游：[Information Runtime](../../../architecture/information-runtime.md)、[合法信息接口](../../../architecture/information-access-and-ui.md)、[认知感知模型](../../../architecture/cognitive-perception.md)、[同伴运行时](../../../architecture/companion-runtime.md)
+> 上游：[Information Runtime](../../architecture/information-runtime.md)、[合法信息接口](../../architecture/information-access-and-ui.md)、[认知感知模型](../../architecture/cognitive-perception.md)、[同伴运行时](../../architecture/companion-runtime.md)
 >
 > 协作边界：[#54 UI Context](https://github.com/spojchil/mineintent/issues/54)、[#34 第一人称视觉](https://github.com/spojchil/mineintent/issues/34)、[#57 验收矩阵](https://github.com/spojchil/mineintent/issues/57)
 >
@@ -67,10 +67,10 @@ Mineflayer / protocol callbacks
 
 ### 1.1 设计权威关系
 
-- [Information Runtime](../../../architecture/information-runtime.md) 是 Catalog/Help/Read、Provider、scope、sourceKinds、Ref/Cursor Store 与 Tool Session 的公共契约权威；本设计不得另建第二套运行时协议。
+- [Information Runtime](../../architecture/information-runtime.md) 是 Catalog/Help/Read、Provider、scope、sourceKinds、Ref/Cursor Store 与 Tool Session 的公共契约权威；本设计不得另建第二套运行时协议。
 - 本文是 v0.2 `sound_information`、`lifecycle_information`、听觉空间化策略和生命周期失效顺序的实现权威。
-- [认知感知模型](../../../architecture/cognitive-perception.md) 继续定义声音作为第三类外界感知、语义类别、跨模态证据关联和认知事件；其中 v0.1 草案“用视觉式粗射线让墙体降低声音 certainty/扩大距离带”与本文冲突的部分，由本文取代。完成独立听觉实测前，不启用该视觉遮挡推断。
-- [同伴运行时](../../../architecture/companion-runtime.md) 继续拥有 Presence/Recovery 对 lifecycle 领域事件的归约；它是安全投影的消费者，不是连接事实或 Provider revision 的所有者。
+- [认知感知模型](../../architecture/cognitive-perception.md) 继续定义声音作为第三类外界感知、语义类别、跨模态证据关联和认知事件；其中 v0.1 草案“用视觉式粗射线让墙体降低声音 certainty/扩大距离带”与本文冲突的部分，由本文取代。完成独立听觉实测前，不启用该视觉遮挡推断。
+- [同伴运行时](../../architecture/companion-runtime.md) 继续拥有 Presence/Recovery 对 lifecycle 领域事件的归约；它是安全投影的消费者，不是连接事实或 Provider revision 的所有者。
 
 后续应在 #59 实现合并时同步旧文档的冲突段落；在此之前，代码审查以本节的权威顺序为准。
 

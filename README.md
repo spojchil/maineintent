@@ -39,7 +39,7 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 - [文档总入口与真相优先级](./docs/README.md)
 - [当前项目状态](./docs/current-status.md)
-- [产品设计](./docs/vision/product-design.md)
+- [产品设计](./docs/product-design.md)
 - [当前系统实况](./docs/architecture/current-system.md)
 - [架构决策记录](./docs/decisions/README.md)
 - [开放提案与具身决策登记册](./docs/proposals/README.md)

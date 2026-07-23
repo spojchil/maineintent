@@ -7,7 +7,7 @@ last_verified: 2026-07-23
 
 # 合法信息接口、Help 发现与 UI 会话
 
-> v0.2 接受设计基线，2026-07-14。当前实现了 Information Runtime 和四个简化被动接口，但完整 Catalog/Help/UI/Screen 字段体系未完成，生产模型也不主动调用 Information tools。上游：[产品设计](../vision/product-design.md)、[目标系统](./target-system.md)、[认知感知](./cognitive-perception.md)。
+> v0.2 接受设计基线，2026-07-14。当前实现了 Information Runtime 和四个简化被动接口，但完整 Catalog/Help/UI/Screen 字段体系未完成，生产模型也不主动调用 Information tools。上游：[产品设计](../product-design.md)、[目标系统](./target-system.md)、[认知感知](./cognitive-perception.md)。
 
 ## 1. 决定
 

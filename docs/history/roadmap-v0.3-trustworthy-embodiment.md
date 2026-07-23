@@ -8,13 +8,13 @@ scope: roadmap
 
 # v0.3：可信具身闭环
 
-> 2026-07-14 因 v0.1 真人联调形成的接受路线图；[milestone](https://github.com/spojchil/mineintent/milestone/2)和追踪 Issue [#41](https://github.com/spojchil/mineintent/issues/41)仍 open。最新分支已经实验性实现 P1 的一部分，但 ADR 0005 仍 proposed，模型—身体接口也被重新打开；“in progress”不等于路线已经稳定。上游：[产品设计](../vision/product-design.md)、[目标系统](../architecture/target-system.md)、[ADR 0005](../decisions/0005-limit-mineflayer-to-protocol-driver.md)。
+> 2026-07-14 因 v0.1 真人联调形成的接受路线图；[milestone](https://github.com/spojchil/mineintent/milestone/2)和追踪 Issue [#41](https://github.com/spojchil/mineintent/issues/41)仍 open。最新分支已经实验性实现 P1 的一部分，但 ADR 0005 仍 proposed，模型—身体接口也被重新打开；“in progress”不等于路线已经稳定。上游：[产品设计](../product-design.md)、[目标系统](../architecture/target-system.md)、[ADR 0005](../decisions/0005-limit-mineflayer-to-protocol-driver.md)。
 
 ## 1. 阶段目标
 
 v0.3 不扩展通关、建造或战斗能力。它建立在 v0.2 的合法信息目录、Help/Read、UI Context 和第一人称信息边界上，证明同伴的语言、Grounding、身体控制和结果验证共享同一套事实：同伴只能声称自己合理得知、亲自做过且经过验证的事情，普通规划不能利用角色尚未感知或探索的完整区块地图。
 
-本计划原为 v0.2；2026-07-14 因发现“合法获取信息”是 Grounding 和控制的缺失前置而顺延。第一人称视口、F3/HUD/GUI、状态和字段可发现性由 [v0.2 合法信息与界面接口](./v0.2-legal-information-interfaces.md) 先行交付。本计划不再采用逐 tick `BodyInputPlan` 作为既定控制方案，连续控制器在本里程碑重新权衡。
+本计划原为 v0.2；2026-07-14 因发现“合法获取信息”是 Grounding 和控制的缺失前置而顺延。第一人称视口、F3/HUD/GUI、状态和字段可发现性由 [v0.2 合法信息与界面接口](./roadmap-v0.2-legal-information-interfaces.md) 先行交付。本计划不再采用逐 tick `BodyInputPlan` 作为既定控制方案，连续控制器在本里程碑重新权衡。
 
 完成后，以下链路必须可信：
 

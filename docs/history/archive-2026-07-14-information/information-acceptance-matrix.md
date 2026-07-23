@@ -15,11 +15,11 @@ source_commit: f93cf7e
 >
 > 共享 Runtime 修订：[#63 按 Provider scopeDependencies 绑定分页 Cursor](https://github.com/spojchil/mineintent/issues/63)、[PR #66 所含所有 Read 公开 revision 后验](https://github.com/spojchil/mineintent/pull/66)
 >
-> 上位设计：[合法信息与 UI](../../../architecture/information-access-and-ui.md)、[Information Runtime](../../../architecture/information-runtime.md)
+> 上位设计：[合法信息与 UI](../../architecture/information-access-and-ui.md)、[Information Runtime](../../architecture/information-runtime.md)
 >
-> 已冻结/送审模块基线：[#67 UI Context](../../../architecture/ui-context.md)、[PR #64 玩家状态与 envelope 预算](https://github.com/spojchil/mineintent/pull/64)、[PR #65 Screen 与 Overlay](https://github.com/spojchil/mineintent/pull/65)、[PR #66 Runtime/Lifecycle](https://github.com/spojchil/mineintent/pull/66)
+> 已冻结/送审模块基线：[#67 UI Context](../../architecture/ui-context.md)、[PR #64 玩家状态与 envelope 预算](https://github.com/spojchil/mineintent/pull/64)、[PR #65 Screen 与 Overlay](https://github.com/spojchil/mineintent/pull/65)、[PR #66 Runtime/Lifecycle](https://github.com/spojchil/mineintent/pull/66)
 >
-> 测试环境：[Paper 集成测试](../../../guides/paper-integration.md)
+> 测试环境：[Paper 集成测试](../../guides/paper-integration.md)
 
 ## 1. 目标
 

@@ -39,15 +39,15 @@ last_verified: 2026-07-23
 
 ## 3. 提案与架构决策
 
-会改变产品原则、系统边界、数据所有权或关键运行语义的修改，应先创建 `type:design` Issue：
+会改变产品原则、系统边界、数据所有权或关键运行语义的修改，其结论必须以**一个合并的 PR** 落地——你可以在任何地方想清楚它，但它必须以可点开的形式存在。PR 正文需包含：
 
-1. 描述问题和现实场景。
-2. 列出备选方案与取舍。
-3. 形成接受、拒绝或暂缓结论。
-4. 接受后更新现有设计文档，或在 `docs/decisions/` 新建 ADR。
-5. 再创建或关联实现 Issue。
+1. 问题和现实场景。
+2. 备选方案与取舍。
+3. 结论，以及被否决的方案。
 
-Issue/Discussion 保存讨论过程；accepted 设计文档和 ADR 保存当前有效结论。尚未接受的内容进入 `docs/proposals/`，实验实现进入 `docs/experiments/`。
+squash 合并后 `main` 上留下的 `(#NN)` 就是这个决定的引用地址。此后引用它，引用 `(#NN)`，不引用任何对话——**说不清到能写进 PR 正文的程度，就还不算一个决定。**
+
+尚未接受的内容进入 [`docs/proposals/`](./docs/proposals/README.md)，具身方向的未决项以[决策登记册](./docs/proposals/embodiment-decision-register.md)里的 `Dxx` 条目为单元。只有改变模型—身体接口本身的根边界决定才另写 ADR 到 `docs/decisions/`；其余以“已合并的 `Dxx`”存在即可。
 
 ## 4. 分支策略
 
@@ -133,23 +133,26 @@ pnpm test
 
 ## 9. 文档维护
 
-> 以下信息架构和自动校验是本次文档重组提出的变更；在相关 PR 被接受前，它描述候选流程，不提前覆盖仓库既有决定。合并该变更即表示接受这一维护方式。
+文档按读者实际会问的五个问题分区，另有四份被所有分区引用的根文档：
 
-- [`docs/README.md`](./docs/README.md) 是文档总入口和真相优先级说明。
-- [`docs/current-status.md`](./docs/current-status.md) 描述分支、代码能力、测试和 tracker 现实。
-- [`docs/vision/`](./docs/vision/README.md) 定义产品体验与范围。
-- [`docs/architecture/`](./docs/architecture/README.md) 保存接受的目标/模块契约以及单独标识的当前实况。
-- [`docs/decisions/`](./docs/decisions/README.md) 保存单项、长期有效的架构决定。
-- [`docs/proposals/`](./docs/proposals/README.md) 保存未接受方案和开放问题。
-- [`docs/experiments/`](./docs/experiments/README.md) 保存已实现但未接受的假设验证。
-- [`docs/roadmap/`](./docs/roadmap/README.md) 保存里程碑计划，并显式记录 tracker 与代码漂移。
-- [`docs/guides/`](./docs/guides/README.md) 保存当前可执行的运行与验证步骤。
-- [`docs/reference/`](./docs/reference/README.md) 保存接口的人类可读视图；代码 schema 仍优先。
-- [`docs/research/`](./docs/research/README.md) 保存已整理的调研结论；本地第三方源码不提交。
-- [`docs/history/`](./docs/history/README.md) 解释项目演进、转折和已删除能力。
-- [`docs/archive/`](./docs/archive/README.md) 保存高价值历史材料，不参与当前权威解析。
+| 位置 | 回答的问题 |
+|---|---|
+| [`docs/architecture/`](./docs/architecture/README.md) | 系统现在如何运行？目标架构是什么？（当前实况与已接受契约分开标识） |
+| [`docs/decisions/`](./docs/decisions/README.md) | 哪项长期决定被正式接受？ |
+| [`docs/proposals/`](./docs/proposals/README.md) | 现在还在争什么？（未接受方案与已实现但未接受的实验同处一区，靠 `status` 区分） |
+| [`docs/guides/`](./docs/guides/README.md) | 怎么运行和验证？接口是什么形状？（代码 schema 仍优先） |
+| [`docs/history/`](./docs/history/README.md) | 为什么走到今天？（演进、旧里程碑、调研、档案；不参与当前权威解析） |
 
-文档必须按[治理规则](./docs/documentation-policy.md)区分决策状态、权威和实现状态。历史材料不再从仓库删除，也不能继续使用未加说明的“当前基线”身份。改变产品、协议、架构或里程碑的 PR 应同步更新状态页、相关 ADR/设计和文档登记表。
+| 根文档 | 作用 |
+|---|---|
+| [`docs/README.md`](./docs/README.md) | 文档总入口与真相优先级 |
+| [`docs/product-design.md`](./docs/product-design.md) | 产品体验与范围，唯一的产品北极星 |
+| [`docs/current-status.md`](./docs/current-status.md) | 分支、代码能力、测试和 tracker 现实 |
+| [`docs/document-register.md`](./docs/document-register.md) | 逐文件的位置、身份与来源 |
+
+文档按[治理规则](./docs/documentation-policy.md)区分决策状态、权威和实现状态，`pnpm check:docs` 会校验元数据、相对链接和登记完整性。历史材料不再从仓库删除，也不能继续使用未加说明的“当前基线”身份。
+
+**硬规则只有一条：`main` 只通过合并 PR 变更。**其余（顺手更新状态页、登记表和相关设计文档）是习惯，不是门。
 
 ## 10. 安全报告
 

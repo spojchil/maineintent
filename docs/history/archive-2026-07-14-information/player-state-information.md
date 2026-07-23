@@ -15,7 +15,7 @@ source_commit: a213690
 >
 > 对应 Issue：[#55](https://github.com/spojchil/mineintent/issues/55)
 >
-> 上游：[Information Runtime](../../../architecture/information-runtime.md)、[合法信息接口与 UI](../../../architecture/information-access-and-ui.md)、[#67 UI Context 模块](../../../architecture/ui-context.md)、[v0.2 计划](../../../roadmap/v0.2-legal-information-interfaces.md)
+> 上游：[Information Runtime](../../architecture/information-runtime.md)、[合法信息接口与 UI](../../architecture/information-access-and-ui.md)、[#67 UI Context 模块](../../architecture/ui-context.md)、[v0.2 计划](../roadmap-v0.2-legal-information-interfaces.md)
 >
 > 依赖：[#54 UI Context](https://github.com/spojchil/mineintent/issues/54)、[#63 按 Provider scopeDependencies 绑定分页 Cursor](https://github.com/spojchil/mineintent/issues/63)；与 [#34 第一人称视觉](https://github.com/spojchil/mineintent/issues/34) 共享当前准星观察边界
 

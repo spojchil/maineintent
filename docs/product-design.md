@@ -7,7 +7,7 @@ last_verified: 2026-07-23
 
 # MineIntent 产品设计
 
-> 本文定义 MineIntent 要提供的产品体验，不证明功能已经实现，也不规定具体技术架构。早期交接文档中的技术路线属于历史研究；当前能力见[项目状态](../current-status.md)。原版玩家可信性、许可和非欺骗边界由 [PR #71](https://github.com/spojchil/maineintent/pull/71) 明确接受。
+> 本文定义 MineIntent 要提供的产品体验，不证明功能已经实现，也不规定具体技术架构。早期交接文档中的技术路线属于历史研究；当前能力见[项目状态](./current-status.md)。原版玩家可信性、许可和非欺骗边界由 [PR #71](https://github.com/spojchil/maineintent/pull/71) 明确接受。
 
 ## 1. 产品定义
 

@@ -12,7 +12,7 @@ last_verified: 2026-07-23
 ## 当前实况
 
 - [当前系统实况](./current-system.md)：从最新实验分支代码反推的运行链路。
-- [模型接口参考](../reference/model-interface.md)：当前 V2 schema 的人类可读视图。
+- [模型接口参考](../guides/model-interface.md)：当前 V2 schema 的人类可读视图。
 
 ## 长期与模块契约
 

@@ -12,29 +12,32 @@ last_verified: 2026-07-23
 第一次阅读建议依次打开：
 
 1. [当前项目状态](./current-status.md)：代码现在到底能做什么，哪些只是实验。
-2. [产品设计](./vision/product-design.md)：项目为何存在，以及长期不应丢失的体验目标。
+2. [产品设计](./product-design.md)：项目为何存在，以及长期不应丢失的体验目标。
 3. [当前系统实况](./architecture/current-system.md)：最新实验分支的真实运行链路。
 4. [架构决策记录](./decisions/README.md)：已经接受、仍在提议或实现已漂移的长期决定。
 5. [开放提案](./proposals/README.md)：尚未形成决定的矛盾、反思和候选接口。
 6. [项目演进史](./history/project-evolution.md)：理解项目为何从 v0.1 走到现在。
 
-## 文档分区
+## 布局
+
+读者其实只问五个问题，目录就按这五个问题分：
 
 | 分区 | 回答的问题 | 能否覆盖已接受决定 |
 |---|---|---|
-| [`vision/`](./vision/README.md) | 我们想做什么产品？ | 仅限明确标为 `accepted` 的产品原则 |
-| [`architecture/`](./architecture/README.md) | 当前系统如何运行？目标架构是什么？ | 只有 `accepted + normative` 文档可以 |
+| [`architecture/`](./architecture/README.md) | 系统现在如何运行？目标架构是什么？ | 只有 `accepted + normative` 文档可以 |
 | [`decisions/`](./decisions/README.md) | 哪项长期决定被正式接受？ | 可以；ADR 状态优先于普通设计稿 |
-| [`proposals/`](./proposals/README.md) | 现在还在争论什么？ | 不可以 |
-| [`experiments/`](./experiments/README.md) | 哪些代码已经试做但尚未被接受？ | 不可以 |
-| [`roadmap/`](./roadmap/README.md) | 旧里程碑如何描述、哪里已经失真？ | 不可以替代 ADR 或代码事实 |
-| [`guides/`](./guides/README.md) | 怎样运行和验证当前代码？ | 不可以 |
-| [`reference/`](./reference/README.md) | 当前接口或组件的精确形状是什么？ | 代码 schema 仍是最终权威 |
-| [`research/`](./research/README.md) | 结论依据来自哪里？ | 不可以 |
-| [`history/`](./history/README.md) | 项目为何演进到现在？ | 不可以；只解释来路 |
-| [`archive/`](./archive/README.md) | 过去认真考虑过什么？ | 不可以 |
+| [`proposals/`](./proposals/README.md) | 现在还在争什么？（含已写出代码但未被接受的实验） | 不可以 |
+| [`guides/`](./guides/README.md) | 怎么运行和验证？接口是什么形状？ | 不可以；代码 schema 仍是最终权威 |
+| [`history/`](./history/README.md) | 为什么走到今天？（含调研、旧里程碑、档案） | 不可以；只解释来路 |
 
-`docs/` 下除登记表自身外的逐文件分类见[文档登记表](./document-register.md)，状态字段和更新流程见[文档治理规则](./documentation-policy.md)。
+根目录只放四份文档，它们不属于任何一问，而是被所有问题引用：
+
+| 文档 | 作用 |
+|---|---|
+| [产品设计](./product-design.md) | 唯一的产品北极星，`accepted + normative` |
+| [当前项目状态](./current-status.md) | 唯一的“现在实际是什么样” |
+| [文档治理规则](./documentation-policy.md) | 状态字段含义与变更规则 |
+| [文档登记表](./document-register.md) | 逐文件的位置、身份与来源 |
 
 ## 真相优先级
 
@@ -57,4 +60,4 @@ last_verified: 2026-07-23
 - `Information → Grounding → Behavior → Motor` 已跑通可信注视实验；把它替换成模型工具循环目前只是候选方案。
 - GitHub v0.2/v0.3 Issue 状态没有吸收 2026-07-21 至 2026-07-23 的直接提交和分支实验。
 
-这些事实会在[当前项目状态](./current-status.md)和[具身决策登记册](./proposals/embodiment/decision-register.md)中继续维护。
+这些事实会在[当前项目状态](./current-status.md)和[具身决策登记册](./proposals/embodiment-decision-register.md)中继续维护。

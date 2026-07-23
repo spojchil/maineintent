@@ -13,9 +13,9 @@ source_commit: ccae567
 >
 > 对应 Issue：[#34](https://github.com/spojchil/mineintent/issues/34)、[#46](https://github.com/spojchil/mineintent/issues/46)、[#47](https://github.com/spojchil/mineintent/issues/47)
 >
-> 公共契约：[Information Runtime](../../../architecture/information-runtime.md)、[合法信息与 UI](../../../architecture/information-access-and-ui.md)
+> 公共契约：[Information Runtime](../../architecture/information-runtime.md)、[合法信息与 UI](../../architecture/information-access-and-ui.md)
 >
-> 上游认知边界：[认知感知模型](../../../architecture/cognitive-perception.md)
+> 上游认知边界：[认知感知模型](../../architecture/cognitive-perception.md)
 >
 > 验收基线：[#57 合法信息验收矩阵](https://github.com/spojchil/mineintent/issues/57)
 >
@@ -62,9 +62,9 @@ ViewportProvider → InformationRuntime → Context / Model / Grounding
 
 ### 1.1 设计权威关系
 
-- [Information Runtime](../../../architecture/information-runtime.md) 是 Catalog/Help/Read、schema、scope、source kind、Ref/Cursor Store、授权与错误 envelope 的权威；本文不另建第二套 token 或工具协议。
+- [Information Runtime](../../architecture/information-runtime.md) 是 Catalog/Help/Read、schema、scope、source kind、Ref/Cursor Store、授权与错误 envelope 的权威；本文不另建第二套 token 或工具协议。
 - 本文是 v0.2 `viewport_information`、视口几何、视觉材质、实体/方块安全投影和 observation ref 语义的实现权威。
-- [认知感知模型](../../../architecture/cognitive-perception.md) 继续拥有三类外界感知、场景/活动派生和认知事件语义。其旧草案中向模型暴露 `position`、在普通观察中保留精确位置或让声音参与视觉候选的部分，不适用于本文 v0.2 边界。
+- [认知感知模型](../../architecture/cognitive-perception.md) 继续拥有三类外界感知、场景/活动派生和认知事件语义。其旧草案中向模型暴露 `position`、在普通观察中保留精确位置或让声音参与视觉候选的部分，不适用于本文 v0.2 边界。
 - 并行中的 [#59 声音与生命周期设计](https://github.com/spojchil/mineintent/issues/59) 拥有声音与 lifecycle。两模块只共享只读 session scope 与事件时观察者姿态；其设计合入后以 `sound-and-lifecycle-information.md` 为对应实现权威。
 
 ## 2. 范围与非目标

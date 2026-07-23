@@ -95,7 +95,7 @@ Agent Service 发起一次 OpenAI-compatible `chat/completions` 请求：
 - 不做格式修复重试；
 - TypeScript 侧再次用 Zod 验证全部业务字段。
 
-当前人类可读接口见[模型接口参考](../reference/model-interface.md)。
+当前人类可读接口见[模型接口参考](../guides/model-interface.md)。
 
 ## 身体路径
 
@@ -155,5 +155,5 @@ Grounding 的两条选择路径并不等价：`context_ref` 会使用本轮 Info
 - [目标系统设计](./target-system.md)保存长期结构设想，不能当成模块清单。
 - [同伴运行时](./companion-runtime.md)与[领域事件](./domain-events-and-journal.md)是早期接受设计，但实现仅部分对齐。
 - [Information Runtime](./information-runtime.md)的公共底座最接近设计—实现一致。
-- [具身架构反思](../proposals/embodiment/architecture-reflection.md)提出替代路线，但仍是 proposal。
+- [具身架构反思](../proposals/embodiment-architecture-reflection.md)提出替代路线，但仍是 proposal。
 - [项目状态](../current-status.md)负责记录分支、能力和验证结果。

@@ -15,7 +15,7 @@ source_commit: 079de7b
 >
 > 对应 Issue：[#56](https://github.com/spojchil/mineintent/issues/56)
 >
-> 上游：[合法信息接口、Help 发现与 UI 会话](../../../architecture/information-access-and-ui.md)、[Information Runtime 模块设计](../../../architecture/information-runtime.md)、[UI Context 与界面会话模块设计](../../../architecture/ui-context.md)、[#63 按 Provider scopeDependencies 绑定分页 Cursor](https://github.com/spojchil/mineintent/issues/63)、[PR #66 所含普通 Read 公开 revision 后验](https://github.com/spojchil/mineintent/pull/66)
+> 上游：[合法信息接口、Help 发现与 UI 会话](../../architecture/information-access-and-ui.md)、[Information Runtime 模块设计](../../architecture/information-runtime.md)、[UI Context 与界面会话模块设计](../../architecture/ui-context.md)、[#63 按 Provider scopeDependencies 绑定分页 Cursor](https://github.com/spojchil/mineintent/issues/63)、[PR #66 所含普通 Read 公开 revision 后验](https://github.com/spojchil/mineintent/pull/66)
 >
 > 下游：#57 信息验收矩阵、#58 最终 composition 与旧链路删除
 

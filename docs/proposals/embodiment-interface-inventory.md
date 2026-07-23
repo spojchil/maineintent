@@ -7,11 +7,11 @@ last_verified: 2026-07-23
 
 # 具身能力与接口清单
 
-> 本文混合了仍有价值的协议/API 普查和已经撤回的控制契约。逐 tick `BodyInputPlan` 结论已于 2026-07-14 撤回；v0.1 API 清单也不描述最新实验分支。对应 Issue：[#32](https://github.com/spojchil/mineintent/issues/32)、[#52](https://github.com/spojchil/mineintent/issues/52)。相关基线：[ADR 0005](../../decisions/0005-limit-mineflayer-to-protocol-driver.md)、[决策契约](../../architecture/decision-contract-and-context.md)。
+> 本文混合了仍有价值的协议/API 普查和已经撤回的控制契约。逐 tick `BodyInputPlan` 结论已于 2026-07-14 撤回；v0.1 API 清单也不描述最新实验分支。对应 Issue：[#32](https://github.com/spojchil/mineintent/issues/32)、[#52](https://github.com/spojchil/mineintent/issues/52)。相关基线：[ADR 0005](../decisions/0005-limit-mineflayer-to-protocol-driver.md)、[决策契约](../architecture/decision-contract-and-context.md)。
 
 ## 1. 目的
 
-本文档保留 MineIntent 对感知、身体控制、协议适配、安全和结果接口的普查证据。合法信息接口的当前规范见[合法信息接口、Help 发现与 UI 会话](../../architecture/information-access-and-ui.md)；控制器粒度和行为计划留到 v0.3 重新设计。
+本文档保留 MineIntent 对感知、身体控制、协议适配、安全和结果接口的普查证据。合法信息接口的当前规范见[合法信息接口、Help 发现与 UI 会话](../architecture/information-access-and-ui.md)；控制器粒度和行为计划留到 v0.3 重新设计。
 
 核心边界是：
 
@@ -397,7 +397,7 @@ packet 名只是 driver 实现证据，不是 Motor API。当前 1.21.1 Play 状
 
 | 范围 | 内容 | 决定 |
 |---|---|---|
-| v0.2 阻断契约 | Information Catalog、Help/Read、UI Context、状态/F3/背包/HUD/current screen、视觉/声音信息边界 | 以 [information-access-and-ui.md](../../architecture/information-access-and-ui.md) 为规范 |
+| v0.2 阻断契约 | Information Catalog、Help/Read、UI Context、状态/F3/背包/HUD/current screen、视觉/声音信息边界 | 以 [information-access-and-ui.md](../architecture/information-access-and-ui.md) 为规范 |
 | v0.3 待设计 | Grounding 后的连续控制器、Mineflayer 高层 API 复用、资源/取消/验证和任务接口边界 | 不沿用本节逐 tick Body Input Plan 结论，重新权衡 |
 | 默认排除 | 单机暂停、截图、全屏、资源重载、debug crash、创造快捷工具栏保存/载入、社交屏幕中的屏蔽/举报、辅助功能/语言/键位设置修改 | 只影响本地显示/运维、产生平台副作用或不适用于无头产品；必要时走用户/运维策略，不是 Companion 普通身体权限 |
 | 需要额外授权 | 服务器命令、创造取物、观战传送、管理/命令方块/结构方块、任意 custom payload | 不属于 Companion 普通身体权限；测试裁判端口与生产认知物理隔离 |
@@ -444,4 +444,4 @@ packet 名只是 driver 实现证据，不是 Motor API。当前 1.21.1 Play 状
 3. 客户端状态、F3、HUD、背包和 screen 信息迁入 Catalog/Help/Read，并按显示精度与可用条件读取。
 4. Mineflayer 高层 API 的风险来自全知来源、目标越权、乐观成功和不可取消组合；是否复用必须逐 controller 评审。
 5. 逐 tick `BodyInputPlan`、Motor 不得消费 grounded handle、坐标参数一律非法等结论已撤回。
-6. v0.2 实施和完成定义以 [合法信息接口、Help 发现与 UI 会话](../../architecture/information-access-and-ui.md) 为准；v0.3 再制定动作完成定义。
+6. v0.2 实施和完成定义以 [合法信息接口、Help 发现与 UI 会话](../architecture/information-access-and-ui.md) 为准；v0.3 再制定动作完成定义。

@@ -39,4 +39,4 @@ O0 可以在测试中和 O2 比较，但绝不能成为 O1/O2 的生产输入。
 
 隐藏 saturation、精确坐标、NBT、未打开容器内容等 canary 变化时，公开值、revision、时间和 trace 都不应泄漏变化。单纯扫描字符串不够，还要做“隐藏输入变化、公开输出完全不变”的成对测试。
 
-完整原始设计和来源见[信息设计档案](../../archive/proposals/2026-07-14-information/README.md)。这些原则目前是评审输入，不是已接受的新 ADR。
+完整原始设计和来源见[信息设计档案](../history/archive-2026-07-14-information/README.md)。这些原则目前是评审输入，不是已接受的新 ADR。

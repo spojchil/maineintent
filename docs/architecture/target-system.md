@@ -8,7 +8,7 @@ scope: target
 
 # MineIntent 目标系统设计
 
-> 这是一份已接受的目标系统设计，不是当前模块清单。最新实验分支已删除图中的独立 Action Runtime，记忆、主动性、导航和大部分 controller 仍未实现。实际运行链路见[当前系统实况](./current-system.md)。原始日期：2026-07-12；上游：[产品设计](../vision/product-design.md)；依据：[系统设计调研](../research/system-design-research.md)。
+> 这是一份已接受的目标系统设计，不是当前模块清单。最新实验分支已删除图中的独立 Action Runtime，记忆、主动性、导航和大部分 controller 仍未实现。实际运行链路见[当前系统实况](./current-system.md)。原始日期：2026-07-12；上游：[产品设计](../product-design.md)；依据：[系统设计调研](../history/research-system-design.md)。
 
 ## 1. 设计目标
 
@@ -564,7 +564,7 @@ Behavior Synthesizer 不接收玩家原话或 `desiredOutcome`，也不得以任
 
 ## 13. Action Runtime
 
-v0.2 先固定[合法信息接口、Help 发现与 UI 会话](./information-access-and-ui.md)，并以[统一 Information Runtime](./information-runtime.md)作为唯一实现入口。具身控制的调研清单保留在[具身能力与接口清单](../proposals/embodiment/interface-inventory.md)，但其中曾提出的逐 tick `BodyInputPlan` 不再是接受的系统契约。
+v0.2 先固定[合法信息接口、Help 发现与 UI 会话](./information-access-and-ui.md)，并以[统一 Information Runtime](./information-runtime.md)作为唯一实现入口。具身控制的调研清单保留在[具身能力与接口清单](../proposals/embodiment-interface-inventory.md)，但其中曾提出的逐 tick `BodyInputPlan` 不再是接受的系统契约。
 
 ### 13.1 v0.3 待设计的控制边界
 
@@ -604,7 +604,7 @@ Companion Runtime 再决定解释、恢复、改变计划或向玩家求助。
 
 ## 14. 感知与认知边界
 
-所有客户端可读信息先进入 [统一 Information Runtime](./information-runtime.md)：强类型 Provider 经最小只读 source port 生成各接口投影，Runtime 统一执行 Registry、audience、schema、scope、selector/cursor、预算、错误、证据和 trace。当前生产决策路径不向模型注册 `information_catalog` 或 `information` 工具；Context Composer 按触发事件确定性读取有界的被动观察集，并将完整的 Read envelope 作为有来源 Context 注入。模型可用观察帧内的量化 `[right, up, forward]` 相对坐标理解空间关系，但只能用同项签发的 opaque ref 选择目标，不能提交坐标、协议 ID 或查询表达式。Context 和模型不得直接读取 Backend snapshot，也不设兼容旁路。字段全集与 UI 语义见[合法信息接口、Help 发现与 UI 会话](./information-access-and-ui.md)；实体、方块、声音、局部空间、玩家行为、可见性状态机和防信息泄漏测试的实现级契约见 [实体、方块、声音与玩家行为的认知感知模型](./cognitive-perception.md)，源码依据见 [Minecraft 认知感知源码调研](../research/cognitive-perception-research.md)。
+所有客户端可读信息先进入 [统一 Information Runtime](./information-runtime.md)：强类型 Provider 经最小只读 source port 生成各接口投影，Runtime 统一执行 Registry、audience、schema、scope、selector/cursor、预算、错误、证据和 trace。当前生产决策路径不向模型注册 `information_catalog` 或 `information` 工具；Context Composer 按触发事件确定性读取有界的被动观察集，并将完整的 Read envelope 作为有来源 Context 注入。模型可用观察帧内的量化 `[right, up, forward]` 相对坐标理解空间关系，但只能用同项签发的 opaque ref 选择目标，不能提交坐标、协议 ID 或查询表达式。Context 和模型不得直接读取 Backend snapshot，也不设兼容旁路。字段全集与 UI 语义见[合法信息接口、Help 发现与 UI 会话](./information-access-and-ui.md)；实体、方块、声音、局部空间、玩家行为、可见性状态机和防信息泄漏测试的实现级契约见 [实体、方块、声音与玩家行为的认知感知模型](./cognitive-perception.md)，源码依据见 [Minecraft 认知感知源码调研](../history/research-cognitive-perception.md)。
 
 当前 UI 由独立 `ui_context` 表达：断线/过渡期主表面为 none，play 中主表面在 world 与一个 screen session 之间互斥；输入归属另行表达为 world、当前 screen、聊天或 none；HUD、F3、聊天、Tab、boss bar 和字幕作为可叠加 overlays。screen 内容通过当前 instance/revision 的信息接口读取，不把 `isInUi`、输入焦点和完整 screen 内容混成一个快照。
 

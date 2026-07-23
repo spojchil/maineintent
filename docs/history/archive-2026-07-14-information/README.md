@@ -38,4 +38,4 @@ last_verified: 2026-07-23
 - 假定 Catalog → Help → Read 已经 model-facing 的叙述；
 - 与当前简化 provider 或可信注视实验冲突的接口细节。
 
-已抽取的跨方案原则见[信息接口提案入口](../../../proposals/information/README.md)。原分支上的公共文件修改没有强行叠加到当前架构文档；需要时应查看对应 PR diff，而不是静默合并两代契约。
+已抽取的跨方案原则见[信息接口提案入口](../../proposals/information-interfaces.md)。原分支上的公共文件修改没有强行叠加到当前架构文档；需要时应查看对应 PR diff，而不是静默合并两代契约。

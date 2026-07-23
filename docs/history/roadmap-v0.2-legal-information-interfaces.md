@@ -8,7 +8,7 @@ scope: roadmap
 
 # v0.2：合法信息与界面接口
 
-> 2026-07-14 接受的阶段路线图；[milestone](https://github.com/spojchil/mineintent/milestone/3)和追踪 Issue [#58](https://github.com/spojchil/mineintent/issues/58)仍 open。五个下游设计 PR #64/#65/#66/#68/#69 已关闭归档，最新代码采用了更小的被动读取切片，因此本计划当前 **stalled / drifted**。上游：[产品设计](../vision/product-design.md)、[目标系统](../architecture/target-system.md)、[合法信息](../architecture/information-access-and-ui.md)、[Information Runtime](../architecture/information-runtime.md)。
+> 2026-07-14 接受的阶段路线图；[milestone](https://github.com/spojchil/mineintent/milestone/3)和追踪 Issue [#58](https://github.com/spojchil/mineintent/issues/58)仍 open。五个下游设计 PR #64/#65/#66/#68/#69 已关闭归档，最新代码采用了更小的被动读取切片，因此本计划当前 **stalled / drifted**。上游：[产品设计](../product-design.md)、[目标系统](../architecture/target-system.md)、[合法信息](../architecture/information-access-and-ui.md)、[Information Runtime](../architecture/information-runtime.md)。
 
 ## 1. 阶段目标
 
