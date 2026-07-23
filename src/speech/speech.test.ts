@@ -53,11 +53,19 @@ test('scheduler waits for accepted actions, rate limits, and preserves segment o
   await wait(10)
   assert.deepEqual(sent, [])
   scheduler.actionAccepted('collect')
-  await wait(30)
+  await waitFor(() => sent.join('') === '我去拿一些木头回来')
   assert.equal(sent.join(''), '我去拿一些木头回来')
   assert.equal(events[0], 'scheduled:promise')
   scheduler.stop()
 })
+
+async function waitFor(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('condition was not reached before timeout')
+    await wait(5)
+  }
+}
 
 test('scheduler delays normal speech under pressure and can cancel unsent speech', async () => {
   const sent: string[] = []
