@@ -10,6 +10,8 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 项目已经实现首个纵向原型，但仍是开发者预览，尚不是可供长期日常游玩的成品。
 
+> 默认分支 `main` 与最新实验分支并不相同：最新实验已经删除采木、跟随和 Action Runtime，换成一个很窄的可信注视闭环，但尚未形成新的接受架构。**逐项事实、分支提交、测试结果和 tracker 漂移见[当前项目状态](./docs/current-status.md)**；以下列表描述的是本分支。
+
 目前已经完成：
 
 - 产品定位与体验设计。
@@ -24,7 +26,7 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 当前原型用来验证最小同伴闭环：玩家与 AI 通过游戏聊天形成“共同收集木材”的活动，AI 能参与、接受中途调整、处理简单意外、验证真实结果，并在重启后记住共同经历。它还没有完整生存能力树、成熟战斗或长期自主规划。
 
-真实 Paper 1.21.1 测试的本地与 self-hosted CI 用法见 [Paper 集成测试](./docs/testing/paper-integration.md)。
+真实 Paper 1.21.1 测试的本地与 self-hosted CI 用法见 [Paper 集成测试](./docs/guides/paper-integration.md)。
 
 ## 核心原则
 
@@ -38,15 +40,14 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 ## 文档
 
-- [产品设计](./PRODUCT_DESIGN.md)
-- [系统设计](./SYSTEM_DESIGN.md)
-- [相关系统调研](./research/SYSTEM_DESIGN_RESEARCH.md)
-- [架构决策记录](./docs/adr/README.md)
-- [详细设计](./docs/design/README.md)
-- [早期项目交接与技术研判](./MINEINTENT_HANDOFF.md)
-- [贡献与开发规范](./CONTRIBUTING.md)
-
-`MINEINTENT_HANDOFF.md` 是项目早期技术研判材料；当前产品需求和系统边界以产品设计、系统设计及后续 ADR 为准。
+- [文档总入口与真相优先级](./docs/README.md)
+- [当前项目状态](./docs/current-status.md)
+- [产品设计](./docs/product-design.md)
+- [当前系统实况](./docs/architecture/current-system.md)
+- [架构决策记录](./docs/decisions/README.md)
+- [开放提案与具身决策登记册](./docs/proposals/README.md)
+- [项目演进史与早期档案](./docs/history/project-evolution.md)
+- [贡献与文档治理](./CONTRIBUTING.md)
 
 ## 技术基线
 
@@ -65,10 +66,11 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 pnpm install
 ```
 
-运行类型检查：
+运行类型检查与文档检查：
 
 ```powershell
 pnpm check
+pnpm check:docs
 ```
 
 运行自动单元和契约测试：
@@ -97,7 +99,7 @@ pnpm start
 
 同伴通过游戏聊天与主要玩家交流。默认调试状态位于 `http://127.0.0.1:3211/v1/state`；该接口只有 GET 能力，不提供游戏控制，并会遮盖密钥、令牌和原始私人正文。
 
-决策层（prompt 构造、OpenAI-compatible 调用与结果校验）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互，边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。模型密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
+决策层（prompt 构造、OpenAI-compatible 调用与结果校验）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互，边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。模型密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/guides/companion-prototype.md)。
 
 在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 生命周期集成验收：
 
@@ -119,7 +121,7 @@ pnpm test:paper
 
 项目采用 GitHub Flow：非琐碎工作通过 Issue 说明目标，在短期分支中实现，由 Pull Request 关联 Issue 并经过自动检查后合并。
 
-架构或产品方向变更应先建立 proposal Issue；接受后的长期决定写入产品/系统设计或 ADR。详细规则见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+硬规则只有一条：`main` 只通过合并 PR 变更。架构或产品方向的结论必须以一个合并的 PR 落地，`main` 上留下的 `(#NN)` 就是它的引用地址。详细规则见 [CONTRIBUTING.md](./CONTRIBUTING.md) 与[文档治理规则](./docs/documentation-policy.md)。
 
 ## 许可证
 
