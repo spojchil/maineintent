@@ -265,6 +265,8 @@ export interface MotorDigFeedback extends GameBlockTarget {
   stage: 'client_predicted'
 }
 
+export type MotorMoveDirection = 'forward' | 'back' | 'left' | 'right'
+
 /**
  * Driver-private body primitives. They neither select targets nor claim semantic success.
  * Only scoped controllers may consume this port; it is never a model-facing tool catalog.
@@ -272,6 +274,18 @@ export interface MotorDigFeedback extends GameBlockTarget {
 export interface MinecraftMotorDriverApi {
   /** Sends one bounded yaw/pitch target chosen by a controller. */
   look(yaw: number, pitch: number, signal: AbortSignal): Promise<void>
+  /**
+   * Applies a short relative view adjustment using player-facing degrees: positive yaw turns
+   * right and positive pitch turns down. It does not select or claim to see a target.
+   */
+  lookRelative(yawDegrees: number, pitchDegrees: number, signal: AbortSignal): Promise<void>
+  /** Holds ordinary movement controls briefly, then releases every control pressed by this call. */
+  move(
+    direction: MotorMoveDirection,
+    durationMs: number,
+    sprint: boolean | undefined,
+    signal: AbortSignal,
+  ): Promise<void>
   /** Returns client prediction only; server/outcome verification happens above the driver. */
   dig(position: BlockPosition, signal: AbortSignal): Promise<MotorDigFeedback>
   releaseAll(): void

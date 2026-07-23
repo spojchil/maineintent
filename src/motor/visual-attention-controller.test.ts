@@ -94,6 +94,8 @@ test('controller deadline aborts a stalled motor primitive and fails without out
     look: async (_yaw, _pitch, signal) => new Promise<void>((_resolve, reject) => {
       signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
     }),
+    lookRelative: async () => { throw new Error('not used') },
+    move: async () => { throw new Error('not used') },
     dig: async () => { throw new Error('not used') },
     releaseAll: () => { releases++ },
   }
@@ -133,6 +135,8 @@ class FakeMotor implements MinecraftMotorDriverApi {
     this.afterLook?.()
     if (signal.aborted) throw new DOMException('aborted', 'AbortError')
   }
+  async lookRelative(): Promise<void> { throw new Error('not used') }
+  async move(): Promise<void> { throw new Error('not used') }
   async dig(): Promise<MotorDigFeedback> { throw new Error('not used') }
   releaseAll(): void { this.releases++ }
 }
