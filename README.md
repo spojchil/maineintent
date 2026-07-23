@@ -8,25 +8,22 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 ## 当前状态
 
-项目正在重构首个纵向原型，目前仍是开发者预览，尚不是可供长期日常游玩的成品。
+项目仍是开发者预览。默认分支 `main` 与最新实验分支并不相同；最新实验实现了一个很窄的可信注视闭环，但尚未形成新的接受架构。
 
-目前已经完成：
+最新实验实际具备：
 
-- 产品定位与体验设计。
-- 相邻 Agent、AI 伴侣和 Minecraft Bot 项目调研。
-- 事件驱动的持续同伴系统设计。
-- Mineflayer Backend、认知观察边界、V2 语义决策协议与聊天调度。
-- 不依赖 model-facing skill 的 `Information Read → Grounding → Behavior → Motor → Outcome Evidence` 纵向链路。
-- “看向我”的有限视觉扫描、渐进转向、取消和第一人称视觉结果验证；只有验证后才允许发送完成话术。
-- 共同活动状态、确定性安全停止、低生命危险反射和带来源的跨重启记忆。
-- OpenAI-compatible 模型适配器、可编辑自然语言同伴档案与本地持久数据。
-- 只绑定本机、只读且脱敏的同伴调试状态接口。
-- 基于持久基准世界副本的 Paper 1.21.1 self-hosted 集成测试。
-- 被动合法信息接口：生命/饥饿/氧气/经验/药水效果、背包内容、最近声音，以及经过视锥和遮挡验证的方块与实体。空间默认使用绑定本次观察的 `[右, 上, 前]` 相对坐标和 opaque ref，不把 raw tracked entity 或 loaded world 直接交给模型。
+- Mineflayer Backend、游戏聊天、发送调度和本地只读调试；
+- 生命/背包/声音/视口四个固定被动 Information Read；
+- `CompanionDecisionV2` 的 `embodied_intent` 分支可进入 `Grounding → Behavior → Motor → Outcome Evidence`；
+- “看向我”的有限扫描、渐进转向、取消和结果阶段可见性复查（当前未强制感知 revision 前进）；
+- JSON 文件形式的最小跨重启证据记忆；
+- 通用 OpenAI-compatible 单轮 JSON 模型传输。
 
-当前原型用来验证最小可信同伴闭环：玩家与 AI 通过游戏聊天形成共同活动；AI 能处理“看向我”这类具身意图、接受安全停止、区分动作命令与视觉验证，并在重启后记住有来源的共同经历。采集、移动规划、建造、战斗和长期自主任务尚未接入新的 Behavior/Outcome 链路；不支持的语义目标会明确拒绝，不会回退到旧 skill 或全知 Pathfinder。
+当前唯一生产具身 operator 是视觉注意。移动、挖掘、攻击、使用物品、物品栏选择、采集、建造、战斗、主动陪伴和完整长期记忆均未接入；v0.1 曾实现的跟随/采木/Action Runtime 已从最新实验删除。Capability Catalog 仍高估身体能力，最新分支也尚无 GitHub CI/Paper run。
 
-真实 Paper 1.21.1 测试的本地与 self-hosted CI 用法见 [Paper 集成测试](./docs/testing/paper-integration.md)。
+逐项事实、分支提交、测试结果和 tracker 漂移见[当前项目状态](./docs/current-status.md)。
+
+真实 Paper 1.21.1 测试的本地与 self-hosted CI 用法见 [Paper 集成测试](./docs/guides/paper-integration.md)。
 
 ## 核心原则
 
@@ -40,15 +37,14 @@ MineIntent 是一个面向 Minecraft Java Edition 的 AI 同伴项目。
 
 ## 文档
 
-- [产品设计](./PRODUCT_DESIGN.md)
-- [系统设计](./SYSTEM_DESIGN.md)
-- [相关系统调研](./research/SYSTEM_DESIGN_RESEARCH.md)
-- [架构决策记录](./docs/adr/README.md)
-- [详细设计](./docs/design/README.md)
-- [早期项目交接与技术研判](./MINEINTENT_HANDOFF.md)
-- [贡献与开发规范](./CONTRIBUTING.md)
-
-`MINEINTENT_HANDOFF.md` 是项目早期技术研判材料；当前产品需求和系统边界以产品设计、系统设计及后续 ADR 为准。
+- [文档总入口与真相优先级](./docs/README.md)
+- [当前项目状态](./docs/current-status.md)
+- [产品设计](./docs/vision/product-design.md)
+- [当前系统实况](./docs/architecture/current-system.md)
+- [架构决策记录](./docs/decisions/README.md)
+- [开放提案与具身决策登记册](./docs/proposals/README.md)
+- [项目演进史与早期档案](./docs/history/project-evolution.md)
+- [贡献与文档治理](./CONTRIBUTING.md)
 
 ## 技术基线
 
@@ -72,6 +68,7 @@ pnpm install
 
 ```powershell
 pnpm check
+pnpm check:docs
 ```
 
 运行自动单元和契约测试：
@@ -99,9 +96,9 @@ python agent-service/server.py
 pnpm start
 ```
 
-同伴通过游戏聊天与主要玩家交流。默认调试状态位于 `http://127.0.0.1:3211/v1/state`；该接口只有 GET 能力，不提供游戏控制，并会遮盖密钥、令牌和原始私人正文。
+同伴通过游戏聊天与主要玩家交流。默认调试状态位于 `http://127.0.0.1:3211/v1/state`；该接口只有 GET 能力，不提供游戏控制，并按字段名与常见凭证形状遮盖密钥、令牌和原始私人正文。供应商错误摘要尚无通用 secret scrub，仍应把调试状态与 JSONL 日志当作敏感本地数据。
 
-模型传输层（prompt 构造与 OpenAI-compatible 调用）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互；决策协议与业务校验的唯一权威在 TypeScript 侧。边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。模型密钥只从本地 `.env` 读取；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/testing/companion-prototype.md)。
+模型传输层（prompt 构造与 OpenAI-compatible 调用）在 `agent-service/`（Python，仅用标准库），通过本地 HTTP 与 Node 侧的 `CompanionRuntime` 交互；决策协议与业务校验的唯一权威在 TypeScript 侧。边界见该目录下的 [README](./agent-service/README.md)。Mineflayer 协议驱动、动作执行与编排仍在 Node 侧。配置优先使用进程环境变量，缺失值再由仓库根目录的本地 `.env` 补齐；`.env` 和运行数据目录 `.mineintent/` 已被 Git 忽略。运行细节见 [首个同伴原型](./docs/guides/companion-prototype.md)。
 
 在 `localhost:25565` 已运行受管理的 Paper 1.21.1 离线验证服务器时，可执行 Backend 生命周期集成验收：
 

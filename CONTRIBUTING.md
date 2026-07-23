@@ -1,3 +1,10 @@
+---
+status: accepted
+authority: normative
+implementation: not-applicable
+last_verified: 2026-07-23
+---
+
 # MineIntent 贡献与开发规范
 
 ## 1. 基本原则
@@ -37,10 +44,10 @@
 1. 描述问题和现实场景。
 2. 列出备选方案与取舍。
 3. 形成接受、拒绝或暂缓结论。
-4. 接受后更新现有设计文档，或在 `docs/adr/` 新建 ADR。
+4. 接受后更新现有设计文档，或在 `docs/decisions/` 新建 ADR。
 5. 再创建或关联实现 Issue。
 
-Issue 保存讨论过程；设计文档和 ADR 保存当前有效结论。
+Issue/Discussion 保存讨论过程；accepted 设计文档和 ADR 保存当前有效结论。尚未接受的内容进入 `docs/proposals/`，实验实现进入 `docs/experiments/`。
 
 ## 4. 分支策略
 
@@ -100,6 +107,7 @@ chore: configure CI
 ```powershell
 pnpm install --frozen-lockfile
 pnpm check
+pnpm check:docs
 pnpm test
 ```
 
@@ -125,13 +133,23 @@ pnpm test
 
 ## 9. 文档维护
 
-- `PRODUCT_DESIGN.md` 定义产品体验与范围。
-- `SYSTEM_DESIGN.md` 定义当前系统边界和运行语义。
-- `docs/adr/` 保存单项、长期有效的架构决定。
-- `research/` 保存已整理的调研结论；`research/repos/` 只用于本地第三方源码，不提交。
-- 临时笔记在结论吸收后删除，不作为长期规范来源。
+> 以下信息架构和自动校验是本次文档重组提出的变更；在相关 PR 被接受前，它描述候选流程，不提前覆盖仓库既有决定。合并该变更即表示接受这一维护方式。
 
-设计文档描述当前有效状态，不保留大段已经失效的方案；历史变化由 Git 和 ADR 状态记录。
+- [`docs/README.md`](./docs/README.md) 是文档总入口和真相优先级说明。
+- [`docs/current-status.md`](./docs/current-status.md) 描述分支、代码能力、测试和 tracker 现实。
+- [`docs/vision/`](./docs/vision/README.md) 定义产品体验与范围。
+- [`docs/architecture/`](./docs/architecture/README.md) 保存接受的目标/模块契约以及单独标识的当前实况。
+- [`docs/decisions/`](./docs/decisions/README.md) 保存单项、长期有效的架构决定。
+- [`docs/proposals/`](./docs/proposals/README.md) 保存未接受方案和开放问题。
+- [`docs/experiments/`](./docs/experiments/README.md) 保存已实现但未接受的假设验证。
+- [`docs/roadmap/`](./docs/roadmap/README.md) 保存里程碑计划，并显式记录 tracker 与代码漂移。
+- [`docs/guides/`](./docs/guides/README.md) 保存当前可执行的运行与验证步骤。
+- [`docs/reference/`](./docs/reference/README.md) 保存接口的人类可读视图；代码 schema 仍优先。
+- [`docs/research/`](./docs/research/README.md) 保存已整理的调研结论；本地第三方源码不提交。
+- [`docs/history/`](./docs/history/README.md) 解释项目演进、转折和已删除能力。
+- [`docs/archive/`](./docs/archive/README.md) 保存高价值历史材料，不参与当前权威解析。
+
+文档必须按[治理规则](./docs/documentation-policy.md)区分决策状态、权威和实现状态。历史材料不再从仓库删除，也不能继续使用未加说明的“当前基线”身份。改变产品、协议、架构或里程碑的 PR 应同步更新状态页、相关 ADR/设计和文档登记表。
 
 ## 10. 安全报告
 

@@ -23,7 +23,7 @@ const READ_PLAN: readonly ReadPlanEntry[] = [
 /**
  * The deterministic, single-shot Context Composer: reads a fixed, known-small field set from
  * each passive-observation interface once per decision. Not a model-facing tool loop — see
- * docs/design/information-runtime.md section 15 for why that was dropped.
+ * docs/architecture/information-runtime.md section 15 for why that was dropped.
  */
 export async function composePassiveObservations(
   runtime: InformationRuntime,
