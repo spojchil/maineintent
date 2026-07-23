@@ -73,7 +73,14 @@ export class VisualAttentionController {
     const initial = this.#resolveTarget(plan, step.targetHandle)
     if (!initial) return result('failed', 'stale_grounded_target')
 
-    const operationSignal = AbortSignal.any([signal, AbortSignal.timeout(step.maxDurationMs)])
+    // A referenced timer, not AbortSignal.timeout(): the latter is unref'd, so on Node 22 a
+    // stalled motor primitive lets the event loop drain before the deadline ever fires.
+    const deadlineController = new AbortController()
+    const deadlineTimer = setTimeout(
+      () => deadlineController.abort(new DOMException('Controller deadline elapsed', 'TimeoutError')),
+      step.maxDurationMs,
+    )
+    const operationSignal = AbortSignal.any([signal, deadlineController.signal])
     const deadline = this.#now().getTime() + step.maxDurationMs
     const ensureCurrent = () => {
       if (operationSignal.aborted) throw abortError(operationSignal.reason)
@@ -143,6 +150,8 @@ export class VisualAttentionController {
       if (error instanceof DOMException && error.name === 'AbortError') return result('failed', 'motor_aborted')
       if (error instanceof ControllerFailure) return result('failed', error.code)
       return result('failed', 'motor_failed')
+    } finally {
+      clearTimeout(deadlineTimer)
     }
   }
 
