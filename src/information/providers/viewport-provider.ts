@@ -54,13 +54,14 @@ const visibleBlocksSchema = z.object({
 const MAX_LOOK_DISTANCE = 4.5
 const MAX_ENTITY_DISTANCE = 32
 const MAX_ENTITIES = 8
+const MAX_VISIBLE_BLOCKS = 256
 const VIEW_HALF_ANGLE = (45 * Math.PI) / 180
 const VISIBLE_BLOCKS_OPTIONS = {
   horizontalRadius: 32,
   verticalRadius: 20,
   maxDistance: 32,
   halfAngle: VIEW_HALF_ANGLE,
-  limit: 20,
+  limit: MAX_VISIBLE_BLOCKS,
 }
 
 /** Coarse first-person projection; raw tracked entities and loaded blocks never cross this API. */
@@ -96,7 +97,7 @@ export class ViewportInformationProvider implements InformationProvider<Viewport
       },
     },
     scopeDependencies: ['connection', 'world', 'dimension'] as const,
-    limits: { maxFieldsPerRead: 4, maxResultBytes: 32_768, timeoutMs: 5_000 },
+    limits: { maxFieldsPerRead: 4, maxResultBytes: 65_536, timeoutMs: 5_000 },
   }
 
   availability(): ProviderAvailability<ViewportValues> {

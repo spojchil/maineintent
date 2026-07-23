@@ -43,11 +43,11 @@ export class InformationRefStore {
   readonly #now: () => Date
 
   constructor(options: InformationRefStoreOptions = {}) {
-    this.#maxEntries = options.maxEntries ?? 2_048
-    this.#maxEntriesPerPrincipal = options.maxEntriesPerPrincipal ?? 512
-    this.#maxEntriesPerInterface = options.maxEntriesPerInterface ?? 256
+    this.#maxEntries = options.maxEntries ?? 65_536
+    this.#maxEntriesPerPrincipal = options.maxEntriesPerPrincipal ?? 32_768
+    this.#maxEntriesPerInterface = options.maxEntriesPerInterface ?? 32_768
     this.#maxPayloadBytes = options.maxPayloadBytes ?? 8_192
-    this.#maxIssuesPerIssuer = options.maxIssuesPerIssuer ?? 32
+    this.#maxIssuesPerIssuer = options.maxIssuesPerIssuer ?? 512
     this.#ttlMs = options.ttlMs ?? 60_000
     this.#now = options.now ?? (() => new Date())
     if ([

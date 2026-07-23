@@ -101,6 +101,22 @@ test('screen-bound references require a concrete screen revision', () => {
   }), /active screen revision/)
 })
 
+test('default reference capacity supports repeated 256-block viewport frames', () => {
+  const store = new InformationRefStore()
+  for (let frame = 0; frame < 2; frame++) {
+    const issuer = store.issuer({
+      interfaceId: 'viewport_information', principalId: 'model-1', grant, scope,
+    })
+    for (let index = 0; index < 266; index++) {
+      issuer.issue({
+        kind: 'viewport.block', payload: { frame, index },
+        allowedInterfaces: ['viewport_information'], basedOnInformationRevision: frame + 1,
+      })
+    }
+  }
+  assert.equal(store.size(), 532)
+})
+
 test('reference limits isolate principals and interfaces and bound per-read payloads', () => {
   const limited = new InformationRefStore({
     maxEntries: 4,

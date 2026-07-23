@@ -21,6 +21,7 @@ class FakePerceptionPort implements PerceptionPort {
 
 function air(): PerceptionBlock { return { name: 'air', visible: false, occludes: false } }
 function opaque(name: string): PerceptionBlock { return { name, visible: true, occludes: true } }
+function transparent(name: string): PerceptionBlock { return { name, visible: true, occludes: false } }
 
 function context() {
   let refIndex = 0
@@ -56,6 +57,17 @@ test('viewport provider emits opaque references with view-relative visible block
   assert.deepEqual(result.values.visibleBlocks?.blocks[0], {
     ref: 'iref_test_1', relativePosition: [0, 1, 3], name: 'stone',
   })
+})
+
+test('viewport provider returns at most 256 visible block records', async () => {
+  const blocks = new Map<string, PerceptionBlock | 'unloaded'>()
+  for (let x = -10; x <= 10; x++) {
+    for (let y = 60; y <= 72; y++) blocks.set(`${x},${y},-20`, transparent('glass'))
+  }
+  const provider = new ViewportInformationProvider(new FakePerceptionPort(NORTH_POSE, blocks))
+  const result = await provider.read(context(), { fields: ['visibleBlocks'], page: { limit: 1 } }, new AbortController().signal)
+  assert.equal(result.values.visibleBlocks?.blocks.length, 256)
+  assert.equal(result.values.visibleBlocks?.truncated, true)
 })
 
 test('viewport provider reports the inferred block directly underfoot', async () => {
