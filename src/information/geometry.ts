@@ -30,7 +30,7 @@ export function relativeBearing(selfYaw: number, selfPosition: Point3, targetPos
   const angle = Math.atan2(cross, dot)
   const quarter = Math.PI / 2
   if (angle >= -quarter / 2 && angle < quarter / 2) return 'ahead'
-  if (angle >= quarter / 2 && angle < quarter * 3 / 2) return 'left'
-  if (angle >= -quarter * 3 / 2 && angle < -quarter / 2) return 'right'
+  if (angle >= quarter / 2 && angle < quarter * 3 / 2) return 'right'
+  if (angle >= -quarter * 3 / 2 && angle < -quarter / 2) return 'left'
   return 'behind'
 }

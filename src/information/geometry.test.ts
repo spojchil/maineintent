@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { distanceBetween, lookDirection, relativeBearing } from './geometry.js'
+import { viewRelativePosition } from './source-ports/perception.js'
 
 test('distanceBetween computes 3D euclidean distance', () => {
   assert.equal(distanceBetween({ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 4 }), 5)
@@ -29,8 +30,16 @@ test('relativeBearing classifies target position relative to self facing', () =>
   const self = { x: 0, y: 64, z: 0 }
   assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: -5 }), 'ahead')
   assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: 5 }), 'behind')
-  assert.equal(relativeBearing(0, self, { x: -5, y: 64, z: 0 }), 'right')
-  assert.equal(relativeBearing(0, self, { x: 5, y: 64, z: 0 }), 'left')
+  assert.equal(relativeBearing(0, self, { x: -5, y: 64, z: 0 }), 'left')
+  assert.equal(relativeBearing(0, self, { x: 5, y: 64, z: 0 }), 'right')
+})
+
+test('relativeBearing agrees with the right axis of viewRelativePosition', () => {
+  const pose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+  for (const target of [{ x: -5, y: 64, z: 0 }, { x: 5, y: 64, z: 0 }]) {
+    const [right] = viewRelativePosition(pose, target)
+    assert.equal(relativeBearing(pose.yaw, pose.position, target), right > 0 ? 'right' : 'left')
+  }
 })
 
 test('relativeBearing rotates with self yaw', () => {
