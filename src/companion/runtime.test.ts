@@ -39,10 +39,10 @@ test('V2 runtime applies social/state effects, rejects ungrounded execution, obe
     assert.equal(memories.length, 1)
     assert.match(memories[0]!.summary, /一起开始收集木材/u)
 
+    const releasesBeforeStop = firstBackend.motorInstance.releases
     firstBackend.chat('停下')
-    await delay(30)
-    assert.equal(firstBackend.motorInstance.releases > 0, true)
-    assert.equal(firstBackend.sent.some(message => message.includes('停下')), true)
+    await waitFor(() => firstBackend.motorInstance.releases > releasesBeforeStop &&
+      firstBackend.sent.some(message => message.includes('停下')))
     await first.stop('restart_test')
 
     const secondBackend = new FakeBackend()
@@ -122,7 +122,53 @@ test('safety stop cancels an in-flight gaze and suppresses completion speech', a
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-function createRuntime(backend: FakeBackend, model: ScriptedModel, memoryFile: string, journalFile: string): CompanionRuntime {
+test('D40 tool seam performs relative look and movement, then returns a ref-free fresh viewport', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'mineintent-runtime-d40-'))
+  try {
+    const backend = new FakeBackend()
+    const model = new D40ScriptedModel()
+    const journalFile = path.join(root, 'events.jsonl')
+    const runtime = createRuntime(backend, model, path.join(root, 'memories.json'), journalFile, true)
+    model.execute = invocation => runtime.executeD40Tool(invocation)
+    await runtime.start()
+    await settle(runtime)
+    assert.equal(model.contexts.length, 0, 'D40 must not create a startup model turn')
+
+    backend.chat('看看那只羊，然后走过去')
+    await settle(runtime)
+
+    assert.deepEqual(backend.motorInstance.relativeLooks, [{ yawDegrees: 30, pitchDegrees: 0 }])
+    assert.deepEqual(backend.motorInstance.moves, [{ direction: 'forward', durationMs: 250, sprint: false }])
+    assert.equal(model.toolResults.length, 2)
+    assert.equal(model.contexts.length, 1)
+    assert.equal(triggerType(model.contexts[0]!), 'player_chat')
+    assert.equal(JSON.stringify(model.toolResults).includes('"ref"'), false)
+    assert.equal(JSON.stringify(model.toolResults).includes('iref_'), false)
+    const firstViewport = (model.toolResults[0] as { viewport: { visibleBlocks: { blocks: unknown[] } } }).viewport
+    assert.ok(firstViewport.visibleBlocks.blocks.length > 0)
+    assert.ok(firstViewport.visibleBlocks.blocks.length <= 256)
+    assert.ok(firstViewport.visibleBlocks.blocks.every(block =>
+      Array.isArray(block) && block.length === 4 && typeof block[0] === 'string' &&
+      block.slice(1).every(value => typeof value === 'number')))
+    assert.equal(backend.sent.some(message => message.includes('走近了一点')), true)
+    assert.equal(backend.motorInstance.looks.length, 0, 'legacy grounded gaze must not run in D40 mode')
+
+    const events = readFileSync(journalFile, 'utf8').trim().split(/\r?\n/u)
+      .map(line => JSON.parse(line) as { type: string; payload: any })
+    assert.equal(events.filter(event => event.type === 'experiment.d40.body_tool.started').length, 2)
+    assert.equal(events.filter(event => event.type === 'experiment.d40.body_tool.terminal' && event.payload.status === 'completed').length, 2)
+    assert.equal(events.some(event => event.type === 'experiment.d40.embodied_intent.rejected'), true)
+    await runtime.stop('test_complete')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+function createRuntime(
+  backend: FakeBackend,
+  model: ScriptedModel,
+  memoryFile: string,
+  journalFile: string,
+  experimentalD40BodyTools = false,
+): CompanionRuntime {
   const debug = new DebugStateStore()
   model.debug = debug
   return new CompanionRuntime({
@@ -134,6 +180,7 @@ function createRuntime(backend: FakeBackend, model: ScriptedModel, memoryFile: s
     debug,
     primaryPlayer: 'Alex',
     speechIntervalMs: 1,
+    experimentalD40BodyTools,
   })
 }
 
@@ -219,6 +266,59 @@ class ScriptedModel implements ModelProvider {
   }
 }
 
+class D40ScriptedModel extends ScriptedModel {
+  execute?: (invocation: { runId: string; name: string; arguments: unknown }) => Promise<unknown>
+  toolResults: unknown[] = []
+
+  override async runDecision(input: { context: ContextPackageV2 }): Promise<RawModelRunResult> {
+    const text = triggerText(input.context)
+    if (!text.includes('羊')) return super.runDecision(input)
+    assert.ok(this.execute)
+    this.contexts.push(structuredClone(input.context))
+    this.toolResults.push(await this.execute({
+      runId: input.context.ref.runId,
+      name: 'look_relative',
+      arguments: { yaw_degrees: 30, pitch_degrees: 0 },
+    }))
+    this.toolResults.push(await this.execute({
+      runId: input.context.ref.runId,
+      name: 'move_input',
+      arguments: { direction: 'forward', duration_ms: 250 },
+    }))
+    const triggerEventId = input.context.trigger.eventIds[0]!
+    return result(decision(input.context, [
+      {
+        id: 'embodied_d40_hallucination',
+        kind: 'embodied_intent',
+        summary: '错误地再次要求旧视觉闭环',
+        desiredOutcome: '看向玩家所说的羊',
+        semanticGoal: {
+          schema: 'mineintent.semantic-goal.v1',
+          objective: { kind: 'state', state: {
+            id: 'state_d40_attention',
+            concept: 'self.attention_includes',
+            description: '视觉注意覆盖玩家所说的羊',
+            arguments: { observer: { kind: 'self' }, subject: { kind: 'referent_role', role: 'sheep' } },
+          } },
+          methodGuidance: [],
+        },
+        referents: [{ role: 'sheep', selection: {
+          kind: 'message_referent', eventId: triggerEventId, expression: '那只羊',
+        } }],
+        constraints: { maxDurationMs: 5_000, interruptibility: 'immediate' },
+      },
+      {
+        id: 'speech_d40_done',
+        kind: 'speech',
+        text: '看到了，我也走近了一点。',
+        audience: { kind: 'primary_player' },
+        timing: 'now',
+        purpose: 'reply',
+      },
+    ]))
+  }
+}
+
 function decision(context: ContextPackageV2, effects: CompanionDecisionV2['effects']): CompanionDecisionV2 {
   return {
     protocol: 'mineintent.decision.v2',
@@ -258,6 +358,8 @@ class FakeMotor implements MinecraftMotorDriverApi {
   constructor(readonly owner: FakeBackend) {}
   releases = 0
   looks: Array<{ yaw: number; pitch: number }> = []
+  relativeLooks: Array<{ yawDegrees: number; pitchDegrees: number }> = []
+  moves: Array<{ direction: 'forward' | 'back' | 'left' | 'right'; durationMs: number; sprint: boolean }> = []
   async look(yaw: number, pitch: number, signal: AbortSignal): Promise<void> {
     this.looks.push({ yaw, pitch })
     if (this.owner.blockMotorLook) {
@@ -268,6 +370,24 @@ class FakeMotor implements MinecraftMotorDriverApi {
     }
     this.owner.yaw = yaw
     this.owner.pitch = pitch
+    this.owner.perceptionRevision++
+  }
+  async lookRelative(yawDegrees: number, pitchDegrees: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw new DOMException('aborted', 'AbortError')
+    this.relativeLooks.push({ yawDegrees, pitchDegrees })
+    this.owner.yaw -= yawDegrees * Math.PI / 180
+    this.owner.pitch -= pitchDegrees * Math.PI / 180
+    this.owner.perceptionRevision++
+  }
+  async move(
+    direction: 'forward' | 'back' | 'left' | 'right',
+    durationMs: number,
+    sprint: boolean | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted) throw new DOMException('aborted', 'AbortError')
+    this.moves.push({ direction, durationMs, sprint: sprint ?? false })
+    this.owner.position = { ...this.owner.position, z: this.owner.position.z - 1 }
     this.owner.perceptionRevision++
   }
   async dig(position: { x: number; y: number; z: number }): Promise<MotorDigFeedback> {

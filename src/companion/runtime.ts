@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { composeContextPackage, type ContextTrigger } from '../context/index.js'
 import { BehaviorSynthesizer, type BehaviorPlanV1, type BehaviorSynthesisResult } from '../behavior/index.js'
 import type { JsonlEventJournal, JournalEvent } from '../events/index.js'
+import type { D40ToolInvocation } from '../experimental/index.js'
 import { GroundedReferentStore, GroundingEngine, type EmbodiedGroundingResult } from '../grounding/index.js'
 import {
   composePassiveObservations,
@@ -75,6 +76,8 @@ export interface CompanionRuntimeOptions {
   debug: DebugStateStore
   primaryPlayer: string
   speechIntervalMs?: number
+  /** Enables the isolated D40 direct body-tool experiment and blocks the legacy embodied path. */
+  experimentalD40BodyTools?: boolean
 }
 
 export class CompanionRuntime {
@@ -85,6 +88,7 @@ export class CompanionRuntime {
   readonly #profile: CompanionProfile
   readonly #debug: DebugStateStore
   readonly #primaryPlayer: string
+  readonly #experimentalD40BodyTools: boolean
   readonly #speech: SpeechScheduler
   readonly #soundHistory: SoundHistory
   readonly #perception: BackendPerceptionPort
@@ -101,6 +105,7 @@ export class CompanionRuntime {
   #intent?: CompanionIntent
   #unsubscribe?: () => void
   #modelAbort?: AbortController
+  #experimentalToolRun?: { runId: string; controller: AbortController }
   #activeBehavior?: { plan: BehaviorPlanV1; abort: AbortController; startedAt: string }
   #behaviorTask?: Promise<void>
   #decisionTail = Promise.resolve()
@@ -118,6 +123,7 @@ export class CompanionRuntime {
     this.#profile = options.profile
     this.#debug = options.debug
     this.#primaryPlayer = options.primaryPlayer
+    this.#experimentalD40BodyTools = options.experimentalD40BodyTools ?? false
     this.#speech = new SpeechScheduler({ send: message => this.#backend.sendChat(message) }, {
       minimumIntervalMs: options.speechIntervalMs ?? 1_000,
       onEvent: event => { void this.#append(`speech.${event.type}`, withoutPrivateSpeech(event)) },
@@ -135,6 +141,84 @@ export class CompanionRuntime {
 
   activity(): Readonly<CompanionActivity> | undefined {
     return this.#activity ? structuredClone(this.#activity) : undefined
+  }
+
+  /**
+   * Disposable D40 seam: the Python model loop calls back into this method for one short,
+   * relative body input. It intentionally bypasses Decision V2, Grounding and Behavior so the
+   * experiment can reveal which runtime guarantees are actually needed before we design them.
+   */
+  async executeD40Tool(invocation: D40ToolInvocation): Promise<unknown> {
+    if (!this.#experimentalD40BodyTools) throw new Error('D40 body tools are not enabled for this runtime')
+    const active = this.#experimentalToolRun
+    if (!active || invocation.runId !== active.runId) throw new Error('D40 tool call does not belong to the active model run')
+    const signal = active.controller.signal
+    if (signal.aborted) throw abortError(signal.reason)
+    const parsed = parseD40ToolInvocation(invocation)
+    const startedAt = Date.now()
+    const before = this.#perception.selfPose()
+    await this.#append('experiment.d40.body_tool.started', {
+      runId: invocation.runId,
+      tool: parsed.name,
+      arguments: parsed.arguments,
+      pose: before,
+    })
+
+    try {
+      if (parsed.name === 'look_relative') {
+        await this.#backend.motor().lookRelative(
+          parsed.arguments.yawDegrees,
+          parsed.arguments.pitchDegrees,
+          signal,
+        )
+      } else {
+        await this.#backend.motor().move(
+          parsed.arguments.direction,
+          parsed.arguments.durationMs,
+          parsed.arguments.sprint,
+          signal,
+        )
+      }
+      if (signal.aborted) throw abortError(signal.reason)
+      const after = this.#perception.selfPose()
+      const viewport = await this.#readD40Viewport(invocation.runId, signal)
+      const movedBlocks = roundTenths(distance3d(before.position, after.position))
+      const result = {
+        status: 'completed',
+        effect: parsed.name === 'look_relative'
+          ? {
+              yawDegrees: roundTenths(-radiansToDegrees(shortestYawDelta(before.yaw, after.yaw))),
+              pitchDegrees: roundTenths(-radiansToDegrees(after.pitch - before.pitch)),
+            }
+          : {
+              movedBlocks,
+              verticalBlocks: roundTenths(after.position.y - before.position.y),
+              movement: movedBlocks < 0.1 ? 'no_effect' : 'changed',
+            },
+        viewport,
+      }
+      await this.#append('experiment.d40.body_tool.terminal', {
+        runId: invocation.runId,
+        tool: parsed.name,
+        durationMs: Date.now() - startedAt,
+        status: result.status,
+        effect: result.effect,
+        viewport: result.viewport,
+        before,
+        after,
+      })
+      return result
+    } catch (error) {
+      try { this.#backend.motor().releaseAll() } catch { /* lifecycle race */ }
+      await this.#append('experiment.d40.body_tool.terminal', {
+        runId: invocation.runId,
+        tool: parsed.name,
+        durationMs: Date.now() - startedAt,
+        status: signal.aborted ? 'interrupted' : 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
   }
 
   async start(): Promise<void> {
@@ -229,6 +313,10 @@ export class CompanionRuntime {
   }
 
   #enqueueDecision(trigger: ContextTrigger): void {
+    // D40 is deliberately a player-chat-only experiment. Keeping every other trigger local
+    // prevents startup/danger/action-result turns from seeing the legacy ref-bearing context or
+    // attempting the legacy embodied-intent path while this disposable direct-tool loop is on.
+    if (this.#experimentalD40BodyTools && trigger.type !== 'player_chat') return
     this.#modelAbort?.abort('superseded_by_new_trigger')
     const controller = new AbortController()
     this.#modelAbort = controller
@@ -271,6 +359,7 @@ export class CompanionRuntime {
     })
     await this.#append('model.decision.started', { runId, context: context.ref })
     const started = Date.now()
+    if (this.#experimentalD40BodyTools) this.#experimentalToolRun = { runId, controller }
     try {
       const result = await this.#model.runDecision({
         context,
@@ -299,6 +388,8 @@ export class CompanionRuntime {
       if (controller.signal.aborted) return
       this.#debug.update({ decision: { status: 'failed', runId, contextSources: sources, retrievedMemoryIds: memories.map(memory => memory.id) } })
       this.#recordFailure('model', 'decision_failed', error)
+    } finally {
+      if (this.#experimentalToolRun?.runId === runId) this.#experimentalToolRun = undefined
     }
   }
 
@@ -326,7 +417,14 @@ export class CompanionRuntime {
       }
     }
 
-    if (embodied) {
+    if (embodied && this.#experimentalD40BodyTools) {
+      effectResults.push({ effectId: embodied.id, status: 'rejected', code: 'd40_direct_body_tools_only' })
+      await this.#append('experiment.d40.embodied_intent.rejected', {
+        runId: context.ref.runId,
+        effectId: embodied.id,
+        reasonCode: 'd40_direct_body_tools_only',
+      })
+    } else if (embodied) {
       const prepared = await this.#prepareEmbodiedIntent(embodied, context, signal)
       if (signal.aborted) return
       if (prepared.status === 'accepted') {
@@ -725,6 +823,26 @@ export class CompanionRuntime {
     }
   }
 
+  async #readD40Viewport(runId: string, signal: AbortSignal): Promise<unknown> {
+    const caller: TrustedInformationCaller = {
+      principalId: INFORMATION_PRINCIPAL_ID,
+      grantId: INFORMATION_GRANT_ID,
+      purpose: 'companion_context',
+      correlationId: `${runId}:d40-tool`,
+      decisionRunId: runId,
+    }
+    const response = await this.#informationRuntime.query(caller, {
+      interfaceId: 'viewport_information',
+      operation: 'read',
+      schemaRevision: 'viewport-information:7',
+      fields: ['standingOnBlock', 'lookedAtBlock', 'visibleEntities', 'visibleBlocks'],
+    }, signal)
+    if (response.protocol !== 'mineintent.information-read.v1') {
+      return { unavailable: 'code' in response ? response.code : 'unexpected_information_response' }
+    }
+    return d40ObservationForModel(response.values)
+  }
+
   async #rememberRecent(type: string, summary: string): Promise<JournalEvent> {
     const event = await this.#append(type, { summary })
     this.#pushRecent(event.id, type, summary)
@@ -809,4 +927,112 @@ function controllerSummary(result: VisualAttentionResult): string {
   if (result.status === 'completed') return '视觉注意已由新的第一人称观察验证'
   if (result.status === 'cancelled') return '视觉注意行为已取消，未报告完成'
   return `视觉注意行为失败：${result.reasonCode}`
+}
+
+type ParsedD40ToolInvocation =
+  | {
+      name: 'look_relative'
+      arguments: { yawDegrees: number; pitchDegrees: number }
+    }
+  | {
+      name: 'move_input'
+      arguments: {
+        direction: 'forward' | 'back' | 'left' | 'right'
+        durationMs: number
+        sprint: boolean
+      }
+    }
+
+function parseD40ToolInvocation(invocation: { name: string; arguments: unknown }): ParsedD40ToolInvocation {
+  if (!invocation.arguments || typeof invocation.arguments !== 'object' || Array.isArray(invocation.arguments)) {
+    throw new TypeError('D40 tool arguments must be an object')
+  }
+  const args = invocation.arguments as Record<string, unknown>
+  if (invocation.name === 'look_relative') {
+    const yawDegrees = args.yaw_degrees
+    const pitchDegrees = args.pitch_degrees
+    if (![yawDegrees, pitchDegrees].every(value => typeof value === 'number' && Number.isFinite(value))) {
+      throw new TypeError('look_relative angles must be finite numbers')
+    }
+    if (Math.abs(yawDegrees as number) > 90 || Math.abs(pitchDegrees as number) > 90) {
+      throw new RangeError('look_relative angles must be within ±90 degrees')
+    }
+    return {
+      name: 'look_relative',
+      arguments: { yawDegrees: yawDegrees as number, pitchDegrees: pitchDegrees as number },
+    }
+  }
+  if (invocation.name === 'move_input') {
+    const direction = args.direction
+    const durationMs = args.duration_ms
+    const sprint = args.sprint ?? false
+    if (direction !== 'forward' && direction !== 'back' && direction !== 'left' && direction !== 'right') {
+      throw new TypeError('move_input direction is not supported')
+    }
+    if (!Number.isSafeInteger(durationMs) || (durationMs as number) < 50 || (durationMs as number) > 1_500) {
+      throw new RangeError('move_input duration_ms must be an integer from 50 to 1500')
+    }
+    if (typeof sprint !== 'boolean') throw new TypeError('move_input sprint must be a boolean')
+    return { name: 'move_input', arguments: { direction, durationMs: durationMs as number, sprint } }
+  }
+  throw new TypeError(`Unknown D40 body tool: ${invocation.name}`)
+}
+
+/** Remove only opaque world-target handles; the surrounding observation stays structured. */
+function withoutWorldTargetRefs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutWorldTargetRefs)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => key !== 'ref')
+    .map(([key, item]) => [key, withoutWorldTargetRefs(item)]))
+}
+
+/** D40-only compact projection: visible block records are [name, right, up, forward]. */
+function d40ObservationForModel(value: unknown): unknown {
+  const projected = withoutWorldTargetRefs(value)
+  return compactVisibleBlocks(projected)
+}
+
+function compactVisibleBlocks(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(compactVisibleBlocks)
+  if (!value || typeof value !== 'object') return value
+  const result = Object.fromEntries(Object.entries(value)
+    .map(([key, item]) => [key, compactVisibleBlocks(item)])) as Record<string, unknown>
+  const visibleBlocks = result.visibleBlocks
+  if (!visibleBlocks || typeof visibleBlocks !== 'object' || Array.isArray(visibleBlocks)) return result
+  const container = visibleBlocks as Record<string, unknown>
+  if (!Array.isArray(container.blocks)) return result
+  result.visibleBlocks = {
+    ...container,
+    blocks: container.blocks.map((block) => {
+      if (!block || typeof block !== 'object' || Array.isArray(block)) return block
+      const record = block as Record<string, unknown>
+      const position = record.relativePosition
+      if (typeof record.name !== 'string' || !isRelativePosition(position)) return block
+      return [record.name, ...position]
+    }),
+  }
+  return result
+}
+
+function isRelativePosition(value: unknown): value is [number, number, number] {
+  return Array.isArray(value) && value.length === 3 && value.every(item =>
+    typeof item === 'number' && Number.isFinite(item))
+}
+
+function distance3d(left: Vec3Value, right: Vec3Value): number {
+  return Math.hypot(right.x - left.x, right.y - left.y, right.z - left.z)
+}
+
+function shortestYawDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2)
+  if (delta > Math.PI) delta -= Math.PI * 2
+  if (delta < -Math.PI) delta += Math.PI * 2
+  return delta
+}
+
+function radiansToDegrees(value: number): number { return value * 180 / Math.PI }
+function roundTenths(value: number): number { return Math.round(value * 10) / 10 }
+function abortError(reason: unknown): DOMException {
+  return new DOMException(String(reason ?? 'aborted'), 'AbortError')
 }
