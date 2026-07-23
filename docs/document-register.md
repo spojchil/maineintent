@@ -16,7 +16,7 @@ last_verified: 2026-07-23
 | [文档入口](./README.md) | reference / informative | not-applicable | 五分区布局与真相优先级 |
 | [产品设计](./product-design.md) | accepted / normative | not-applicable | 原根目录 `PRODUCT_DESIGN.md`；`078f525` 创建，PR #71 / `4718d85` 扩展长期可信目标 |
 | [当前项目状态](./current-status.md) | reference / informative | current | 按代码、PR、Issue 和测试核验 |
-| [文档治理规则](./documentation-policy.md) | accepted / normative | not-applicable | 本次重组提出并随同一 PR 接受；硬规则只有“`main` 只通过合并 PR 变更” |
+| [文档治理规则](./documentation-policy.md) | accepted / normative | not-applicable | 经 PR #72 接受；硬规则只有“`main` 只通过合并 PR 变更” |
 
 ## 架构（系统现在如何运行？目标架构是什么？）
 
@@ -39,8 +39,8 @@ last_verified: 2026-07-23
 
 | 文档 | 状态 / 权威 | 实现 | 来源与用途 |
 |---|---|---|---|
-| [ADR 入口](./decisions/README.md) | reference / informative | not-applicable | 原 `docs/adr/README.md`（`078f525`）；本次新增决策/实现双状态表 |
-| [ADR 模板](./decisions/template.md) | reference / informative | not-applicable | 原 `docs/adr/template.md`（`078f525`）；本次新增实现漂移字段 |
+| [ADR 入口](./decisions/README.md) | reference / informative | not-applicable | 原 `docs/adr/README.md`（`078f525`）；PR #72 新增决策/实现双状态表 |
+| [ADR 模板](./decisions/template.md) | reference / informative | not-applicable | 原 `docs/adr/template.md`（`078f525`）；PR #72 新增实现漂移字段 |
 | [ADR 0001：首版使用 Mineflayer](./decisions/0001-use-mineflayer-as-initial-backend.md) | accepted / normative | current | 原 `docs/adr/0001-*`；`078f525` 已明确 accepted |
 | [ADR 0002：事件驱动持续同伴](./decisions/0002-event-driven-companion-runtime.md) | accepted / normative | partial | 原 `docs/adr/0002-*`；`078f525` 已明确 accepted |
 | [ADR 0003：分离 Mind 与 Action Runtime](./decisions/0003-separate-mind-and-action-runtime.md) | accepted / normative | diverged | 原 `docs/adr/0003-*`；`078f525` accepted，Action Runtime 于 `29052bf` 删除 |

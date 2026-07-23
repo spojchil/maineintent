@@ -16,11 +16,11 @@ applies_to: main@53ebc57 + codex/trustworthy-passive-context@57d438e
 |---|---|---|
 | 默认分支 `main` | [`53ebc57`](https://github.com/spojchil/maineintent/commit/53ebc5797f970c791a03c97b0d83c6c80a5c36ae) | GitHub 默认展示和现有成功 CI 所在位置 |
 | 最新代码实验 `codex/trustworthy-passive-context` | [`57d438e`](https://github.com/spojchil/maineintent/commit/57d438e167e7b66408f239369979dad2fd90f975) | 比 `main` 多 22 个提交；包含 V2 决策、Grounding、Behavior 和可信注视实验 |
-| 本次文档重组 `docs/information-architecture` | 基于 `main@53ebc57` | 纯文档分支：只整理 `docs/`、新增文档校验脚本与 CI 步骤，不含任何实验代码，也不改产品 runtime |
+| 文档重组 `docs/information-architecture`（PR #72） | 基于 `main@53ebc57` | 纯文档分支：只整理 `docs/`、新增文档校验脚本与 CI 步骤，不含任何实验代码，也不改产品 runtime |
 
 截至核对日期，最新代码实验没有关联 PR、GitHub Actions run 或 commit status。因此它是“最新实现”，不是“最新接受架构”。
 
-**本文档分支刻意从 `main` 而非实验分支长出**：文档重组不应顺带把 22 个未被接受的实验提交推上默认分支。因此合并本分支后，`main` 上会出现一批描述实验分支的文档——它们全部用 `applies_to` 标明所描述的基线，这正是该字段存在的理由。文档描述某个分支，不等于那个分支已被接受。
+PR #72 从 `main` 而非实验分支长出，是刻意的：文档重组不应顺带把 22 个未被接受的实验提交推上默认分支。代价是 `main` 上因此存在一批描述实验分支的文档（`architecture/current-system.md`、`guides/model-interface.md`、`proposals/trustworthy-gaze.md` 及具身反思与登记册）。它们全部用 `applies_to` 标明所描述的基线——**文档描述某个分支，不等于那个分支已被接受**。
 
 ## 当前能力矩阵
 
@@ -106,9 +106,9 @@ Minecraft / Mineflayer
 - Node 22.23.1（满足项目声明的 `>=22`）：TypeScript 检查通过；测试为 122 pass、1 cancelled，进程退出 1。
 - 取消项是 `visual-attention-controller.test.ts` 的 deadline 场景，根因为 `AbortSignal.timeout()` 的 unref timer 在 Node 22 测试进程没有其他活跃 handle 时不会保持事件循环。
 
-该缺陷的修复位于实验分支 `codex/docs-information-architecture@437b2b7`，**不在本文档分支上**——`src/motor/visual-attention-controller.ts` 在 `main` 上并不存在。修复内容是把控制器超时改用显式 `setTimeout` + `AbortController` 并在 `finally` 中 `clearTimeout`，与 `information/tool-session.ts` 的既有写法一致；ref'd timer 构造性地持有事件循环，不再依赖 unref 行为。Node 24 下复验 123/123 通过，Node 22 待 CI 确认。它应随实验分支自身的 PR 合并，不搭文档分支的车。
+该缺陷的修复位于 `codex/docs-information-architecture@437b2b7`，不在 PR #72 中——`src/motor/visual-attention-controller.ts` 在 `main` 上并不存在。修复内容是把控制器超时改用显式 `setTimeout` + `AbortController` 并在 `finally` 中 `clearTimeout`，与 `information/tool-session.ts` 的既有写法一致；ref'd timer 构造性地持有事件循环，不再依赖 unref 行为。Node 24 下复验 123/123 通过，Node 22 待 CI 确认。该修复须随实验分支自身的 PR 合并。
 
-本文档分支的复验（`main@53ebc57` + 文档改动，Node 24）：TypeScript 检查通过；文档检查通过，47 份 `docs/` 文档的元数据、相对链接和登记表一致。
+PR #72 的复验（`main@53ebc57` + 文档改动）：Node 24 本地与 Node 22 CI 均通过；TypeScript 检查、`pnpm test` 87/87、文档检查 47 份 `docs/` 文档的元数据、相对链接和登记表一致。
 
 默认分支最近一次 GitHub CI 成功记录见 [Actions run #29851997169](https://github.com/spojchil/maineintent/actions/runs/29851997169)。
 
