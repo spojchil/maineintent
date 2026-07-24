@@ -2,7 +2,7 @@
 status: reference
 authority: informative
 implementation: not-applicable
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 ---
 
 # 开放提案与实验
@@ -25,6 +25,7 @@ last_verified: 2026-07-23
 ## 实验
 
 - [可信注视实验](./trustworthy-gaze.md)：`experimental`；`codex/trustworthy-passive-context@57d438e` 上真实跑通的能力边界。
+- [动作—观察闭环与第一人称感知实验发现](./embodiment-experiment-findings.md)：`experimental`；汇总 D40 真实模型运行、视口几何、移动、诚实性和后续坐标系实验输入。
 
 认知感知和记忆的长期方向已经被接受，但实现仍不完整，分别见[认知感知模型](../architecture/cognitive-perception.md)和[记忆模型、档案版本与冲突协调](../architecture/memory-model-and-profile-versioning.md)。这里保存的是对它们的修订建议，而不是重复一份“当前设计”。
 
