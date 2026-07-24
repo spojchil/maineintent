@@ -8,8 +8,7 @@ export function distanceBetween(a: Point3, b: Point3): number {
 
 /**
  * Matches Mineflayer's own yaw/pitch-to-direction convention exactly (cross-checked against
- * mineflayer/lib/plugins/ray_trace.js and mineflayer-pathfinder's getViewVector/blockInteraction
- * example — all three independently agree on this sign convention). `entity.yaw`/`entity.pitch`
+ * mineflayer/lib/plugins/ray_trace.js. `entity.yaw`/`entity.pitch`
  * from the protocol are meaningless without it, so this must not drift from the real library.
  */
 export function lookDirection(yaw: number, pitch: number): Point3 {
@@ -30,7 +29,7 @@ export function relativeBearing(selfYaw: number, selfPosition: Point3, targetPos
   const angle = Math.atan2(cross, dot)
   const quarter = Math.PI / 2
   if (angle >= -quarter / 2 && angle < quarter / 2) return 'ahead'
-  if (angle >= quarter / 2 && angle < quarter * 3 / 2) return 'left'
-  if (angle >= -quarter * 3 / 2 && angle < -quarter / 2) return 'right'
+  if (angle >= quarter / 2 && angle < quarter * 3 / 2) return 'right'
+  if (angle >= -quarter * 3 / 2 && angle < -quarter / 2) return 'left'
   return 'behind'
 }

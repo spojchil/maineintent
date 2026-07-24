@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { distanceBetween, lookDirection, relativeBearing } from './geometry.js'
+import { viewRelativePosition } from './source-ports/perception.js'
 
 test('distanceBetween computes 3D euclidean distance', () => {
   assert.equal(distanceBetween({ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 4 }), 5)
   assert.equal(distanceBetween({ x: 1, y: 1, z: 1 }, { x: 1, y: 1, z: 1 }), 0)
 })
 
-// Pinned against mineflayer's own yaw/pitch-to-direction formula (lib/plugins/ray_trace.js
-// getViewDirection, and mineflayer-pathfinder's independent getViewVector/blockInteraction
-// example — all three agree). If this ever needs to change, re-verify against those first;
+// Pinned against mineflayer's own yaw/pitch-to-direction formula (lib/plugins/ray_trace.js).
 // a silent sign flip here means every raycast/bearing looks the wrong way without erroring.
 test('lookDirection matches mineflayer\'s own yaw/pitch-to-direction formula', () => {
   const cases: Array<[number, number, [number, number, number]]> = [
@@ -29,8 +28,8 @@ test('relativeBearing classifies target position relative to self facing', () =>
   const self = { x: 0, y: 64, z: 0 }
   assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: -5 }), 'ahead')
   assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: 5 }), 'behind')
-  assert.equal(relativeBearing(0, self, { x: -5, y: 64, z: 0 }), 'right')
-  assert.equal(relativeBearing(0, self, { x: 5, y: 64, z: 0 }), 'left')
+  assert.equal(relativeBearing(0, self, { x: -5, y: 64, z: 0 }), 'left')
+  assert.equal(relativeBearing(0, self, { x: 5, y: 64, z: 0 }), 'right')
 })
 
 test('relativeBearing rotates with self yaw', () => {
@@ -42,4 +41,16 @@ test('relativeBearing rotates with self yaw', () => {
 test('relativeBearing defaults to ahead when target is exactly at self position', () => {
   const self = { x: 0, y: 64, z: 0 }
   assert.equal(relativeBearing(0, self, { x: 0, y: 64, z: 0 }), 'ahead')
+})
+
+test('bearing labels agree with the right axis of view-relative coordinates', () => {
+  const pose = { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 }
+  for (const [target, expected] of [
+    [{ x: 5, y: 64, z: 0 }, 'right'],
+    [{ x: -5, y: 64, z: 0 }, 'left'],
+  ] as const) {
+    const right = viewRelativePosition(pose, target)[0]
+    assert.equal(relativeBearing(pose.yaw, pose.position, target), expected)
+    assert.equal(Math.sign(right), expected === 'right' ? 1 : -1)
+  }
 })

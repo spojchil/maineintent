@@ -2,28 +2,27 @@
 status: reference
 authority: informative
 implementation: partial
-last_verified: 2026-07-23
-applies_to: codex/trustworthy-passive-context@57d438e
+last_verified: 2026-07-24
+applies_to: agent/main-reset-d40@c12ea9b
 ---
 
 # Paper 1.21.1 集成测试
 
-MineIntent 将普通 CI 单元测试和真实 Paper 测试分开。普通 PR CI 不启动 Minecraft；Paper Integration 只通过 GitHub 手动触发，并在仓库专用的 self-hosted runner 上运行。最新实验分支尚无 Actions 或 Paper run，因此以下内容描述场景代码覆盖范围，不声称当前分支已经在线验收通过。
+MineIntent 将普通 CI 和真实 Paper 测试分开。普通 PR CI 不启动 Minecraft；Paper Integration 通过 GitHub 手动触发，并在仓库专用的 self-hosted runner 上运行。
+
+PR #73 保留的 Paper 场景是通用协议与测试环境裁判，不是真实模型驱动的 D40 验收。当前候选分支尚无 Paper run，因此下列内容只说明场景代码会检查什么。
 
 ## 覆盖范围
 
-真实场景代码当前覆盖以下断言；这份清单描述“运行时会检查什么”，不构成最新提交已经运行通过的证据：
+真实场景代码当前覆盖：
 
 - Minecraft Backend 连接、死亡、重生和服务端重启后自动重连；
 - 测试客户端的基础移动和清除控制状态后的取消，用于验证服务器与协议环境；
 - 测试客户端装备镐、挖掘方块、确认方块消失和掉落进入背包；该场景不宣称是同伴当前生产能力；
-- 主要玩家与同伴通过聊天建立共同收集木材活动；
-- 同伴背对主要玩家时收到“看向我”，经 partial Grounding、有限扫描和渐进转向建立视觉注意，并以实际 yaw 和 `outcome_verified` 双重断言；
-- 尚未支持的采集语义不回退到旧 skill，背包和世界保持不变；
-- “等一下”的确定性安全停止与低生命危险警告；
-- 玩家明确提出的共同经历带来源写入记忆，并在同伴进程重启后被检索和用于回答；
 - 所有失败、超时和正常结束路径均安全停止 Bot 与 Paper；
 - setup、companion、assertion、cleanup 分阶段记录，不把控制台布置命令算作同伴能力。
+
+场景不向生产模型传入 Paper 命令、raw 协议状态或 fixture 真值。测试客户端能挖掘或移动，也不表示 D40 生产同伴已获得该高层能力。
 
 ## shumei4 Runner
 
@@ -58,7 +57,7 @@ Paper 只监听 `127.0.0.1:25566`，不需要开放 Minecraft 公网端口。工
 5. 安全停止进程，将控制台日志移出世界目录；
 6. 删除本轮世界副本，只上传 JSONL、摘要和服务端日志。
 
-纵向同伴场景使用测试专用的确定性模型替身，因此 CI 不需要、也不保存任何模型 API 密钥。它验证模型之后的决策应用、Minecraft 动作、真实结果与持久记忆；真实模型协议由普通自动化测试验证，真人体验需要单独配置本地模型密钥。
+当前 Paper 工作流不需要、也不保存模型 API 密钥。真实 D40 体验需要单独配置本地模型，并手工记录模型可见信息、工具调用、延迟、token 和最终聊天。
 
 不能用硬链接复制 region 文件，因为 Paper 的原地写入可能反向污染模板。
 
