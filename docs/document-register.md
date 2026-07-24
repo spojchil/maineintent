@@ -2,7 +2,7 @@
 status: reference
 authority: informative
 implementation: current
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 ---
 
 # 文档登记表
@@ -57,6 +57,7 @@ last_verified: 2026-07-23
 | [具身接口清单](./proposals/embodiment-interface-inventory.md) | historical / informative | retired | PR #42 / `e18f90f`；事实审计仍有价值，控制契约已撤回；与具身讨论同处一区以保持阅读单元完整 |
 | [信息接口提案](./proposals/information-interfaces.md) | proposed / informative | not-applicable | 从五条已关闭未合并 PR 提炼的耐久原则与待决项，不是实现契约 |
 | [可信注视实验](./proposals/trustworthy-gaze.md) | experimental / informative | current | 对 `codex/trustworthy-passive-context@57d438e` 的能力边界说明 |
+| [动作—观察与第一人称感知实验发现](./proposals/embodiment-experiment-findings.md) | experimental / informative | partial | 对 `experiment/d40-run@69bdb33` 的真实 D40 运行、后续视口现场观察及待验证假设的汇总 |
 
 ## 指南与接口（怎么运行？接口什么形状？）
 

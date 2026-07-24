@@ -2,7 +2,7 @@
 status: proposed
 authority: informative
 implementation: not-applicable
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 source_commit: 57d438e
 ---
 
@@ -377,6 +377,8 @@ observed: ...
 ```
 
 验收需要同时观察接口正确性、动作自然度、失败恢复、响应延迟和玩家观感。
+
+`experiment/d40-run@69bdb33` 已用真实模型和 Paper 执行这个场景，并扩展到短时移动。结果、失败模式与尚不能下的结论见[动作—观察闭环与第一人称感知实验发现](./embodiment-experiment-findings.md)。这构成 D40 的实验输入，但分支、逐工具视口日志和正式接受证据尚未完备，因此本条仍为“待决策”，不记作“已验证”。
 
 ---
 
